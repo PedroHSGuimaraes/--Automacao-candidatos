@@ -1,0 +1,6 @@
+openai_key = "<sua_chave_openai>"
+
+mysql_host = "<seu_host>"
+mysql_user = "<seu_usuario>"
+mysql_password = "<sua_senha>"
+mysql_database = "<seu_banco_de_dados>"
