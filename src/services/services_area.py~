@@ -1,0 +1,85 @@
+# src/services/services_area.py
+from src.database.database_connection import DatabaseConnection
+
+
+class AreaService:
+    @staticmethod
+    def buscar_areas_similares(termo, tipo):
+        conn, cursor = DatabaseConnection.get_connection()
+        try:
+            # Busca áreas similares usando LIKE
+            query = """
+            SELECT id, nome, total_uso 
+            FROM areas 
+            WHERE tipo = %s 
+            AND LOWER(nome) LIKE %s 
+            ORDER BY total_uso DESC 
+            LIMIT 5
+            """
+            cursor.execute(query, (tipo, f"%{termo.lower()}%"))
+            return cursor.fetchall()
+        finally:
+            DatabaseConnection.close_connection(conn, cursor)
+
+    @staticmethod
+    def criar_ou_atualizar_area(nome, tipo):
+        conn, cursor = DatabaseConnection.get_connection()
+        try:
+            # Verifica se área já existe
+            cursor.execute(
+                "SELECT id FROM areas WHERE LOWER(nome) = %s AND tipo = %s",
+                (nome.lower(), tipo)
+            )
+            resultado = cursor.fetchone()
+
+            if resultado:
+                # Atualiza contagem de uso
+                cursor.execute(
+                    "UPDATE areas SET total_uso = total_uso + 1 WHERE id = %s",
+                    (resultado['id'],)
+                )
+                area_id = resultado['id']
+            else:
+                # Cria nova área
+                cursor.execute(
+                    "INSERT INTO areas (nome, tipo) VALUES (%s, %s)",
+                    (nome.lower(), tipo)
+                )
+                area_id = cursor.lastrowid
+
+            conn.commit()
+            return area_id
+        finally:
+            DatabaseConnection.close_connection(conn, cursor)
+
+    @staticmethod
+    def associar_areas_candidato(candidato_id, areas_interesse, areas_atuacao):
+        conn, cursor = DatabaseConnection.get_connection()
+        try:
+            # Limpa associações anteriores
+            cursor.execute(
+                "DELETE FROM candidato_areas WHERE candidato_id = %s",
+                (candidato_id,)
+            )
+
+            # Processa áreas de interesse
+            for area in areas_interesse:
+                area_id = AreaService.criar_ou_atualizar_area(area, 'interesse')
+                cursor.execute(
+                    """INSERT INTO candidato_areas 
+                       (candidato_id, area_id, tipo) VALUES (%s, %s, 'interesse')""",
+                    (candidato_id, area_id)
+                )
+
+            # Processa áreas de atuação
+            for area in areas_atuacao:
+                area_id = AreaService.criar_ou_atualizar_area(area, 'atuacao')
+                cursor.execute(
+                    """INSERT INTO candidato_areas 
+                       (candidato_id, area_id, tipo) VALUES (%s, %s, 'atuacao')""",
+                    (candidato_id, area_id)
+                )
+
+            conn.commit()
+        finally:
+            DatabaseConnection.close_connection(conn, cursor)
