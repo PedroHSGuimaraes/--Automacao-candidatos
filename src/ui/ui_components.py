@@ -1,6 +1,7 @@
 # src/ui/ui_components.py
 import streamlit as st
 import pandas as pd
+from src.config.config_settings import SQL_SCHEMA
 from src.services.services_gpt import GPTService
 from src.services.services_pdf import PDFService
 from src.services.services_data import DataService
@@ -9,8 +10,8 @@ def render_upload():
    st.header("Upload de Currículos")
    
    arquivos = st.file_uploader(
-       "Selecione os PDFs dos currículos",
-       type="pdf",
+        "Selecione os PDFs dos currículos",
+        type="pdf",
        accept_multiple_files=True
    )
    
@@ -52,13 +53,7 @@ def render_query():
            gpt_service = GPTService()
            data_service = DataService()
            
-           schema = """
-           Tabela: candidatos
-           Colunas: id, nome, email, genero, idade, instituto_formacao, 
-                    curso, periodo, tempo_experiencia, area_atuacao, 
-                    ultima_experiencia, todas_experiencias, habilidades,
-                    linkedin, github, telefone
-           """
+           schema = "Considere a tabela a seguir: " + SQL_SCHEMA
            
            query = gpt_service.gerar_query_sql(prompt, schema)
            if query:

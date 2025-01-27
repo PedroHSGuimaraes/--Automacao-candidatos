@@ -27,7 +27,7 @@ SQL_SCHEMA = """
         telefone VARCHAR(50),
         data_criacao DATETIME,
         pdf_conteudo LONGTEXT,
-        observacoes_ia JSON,
-        campos_dinamicos JSON
+        observacoes_ia TEXT,
+        campos_dinamicos TEXT
     )
 """

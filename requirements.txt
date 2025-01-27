@@ -1,5 +1,5 @@
 Streamlit
 mysql-connector-python
 openai
-PyPDF2
 pandas
+pdfminer.six

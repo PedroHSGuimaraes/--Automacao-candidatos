@@ -254,6 +254,6 @@ MIT License. Ver arquivo `LICENSE` para mais detalhes.
 - Outros contribuidores
 
 ## 📧 Contato
-- Email: seu.email@dominio.com
-- LinkedIn: https://linkedin.com/in/seu-perfil
-- GitHub: https://github.com/seu-usuario
+- Email: pedro.guimaraes02@hotmail.com
+- LinkedIn:https://www.linkedin.com/in/pedro-henrique-santos-guimar%C3%A3es-b06555121/
+- GitHub: https://github.com/PedroHSGuimaraes
