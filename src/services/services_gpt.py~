@@ -86,7 +86,7 @@ class GPTService:
         if not isinstance(dados, dict):
             return template
 
-
+        
         def merge_dicts(template, data):
             if not isinstance(data, dict):
                 return data
