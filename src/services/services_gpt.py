@@ -86,11 +86,11 @@ class GPTService:
         if not isinstance(dados, dict):
             return template
 
-        # Função recursiva para mesclar dicionários mantendo a estrutura
+
         def merge_dicts(template, data):
             if not isinstance(data, dict):
                 return data
-            result = template.copy()
+            result = template.copy()[0]
             for key, value in data.items():
                 if key in template and isinstance(template[key], dict):
                     result[key] = merge_dicts(template[key], value)
@@ -100,7 +100,7 @@ class GPTService:
 
         return merge_dicts(template, dados)
 
-    # -*- coding: utf-8 -*-
+
     def user_message(self, texto, areas_existentes=None):
         areas_contexto = ""
         if areas_existentes:
@@ -227,14 +227,14 @@ class GPTService:
             )
             content = response.choices[0].message.content.strip()
 
-            # Remove markdown e limpa o texto
+
             content = content.replace("```json", "").replace("```", "").strip()
 
-            # Tenta extrair JSON válido
+
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
-                # Se falhar, tenta extrair usando regex
+
                 json_match = re.search(r"\{[\s\S]*\}", content)
                 if (json_match):
                     return json.loads(json_match.group())
@@ -298,7 +298,7 @@ class GPTService:
             print(f"Response Error: {e}")
             return "Erro ao processar resposta."
 
-        # src/services/services_gpt.py
+
         def _get_empty_structure(self):
             return {
                 "dados_basicos": {
@@ -308,16 +308,15 @@ class GPTService:
                     "idade": None
                 },
                 "formacao": {
-                    "instituto_formacao": "",  # Corrigido de "instituto" para "instituto_formacao"
-                    "curso": "",
+                    "instituto_formacao": "",
                     "periodo": ""
                 },
                 "experiencia": {
-                    "tempo_experiencia": 0,  # Corrigido de "tempo_total" para "tempo_experiencia"
-                    "areas_interesse": [],  # Adicionado
-                    "areas_atuacao": [],  # Adicionado
-                    "ultima_experiencia": "",  # Corrigido de "ultima_exp" para "ultima_experiencia"
-                    "todas_experiencias": []  # Corrigido de "todas_exp" para "todas_experiencias"
+                    "tempo_experiencia": 0,
+                    "areas_interesse": [],
+                    "areas_atuacao": [],
+                    "ultima_experiencia": "",
+                    "todas_experiencias": []
                 },
                 "habilidades": [],
                 "contato": {
@@ -325,6 +324,6 @@ class GPTService:
                     "github": "",
                     "telefone": ""
                 },
-                "observacoes_ia": [],  # Corrigido de "observacoes" para "observacoes_ia"
-                "campos_dinamicos": {}  # Adicionado
+                "observacoes_ia": [],
+                "campos_dinamicos": {}
             }
