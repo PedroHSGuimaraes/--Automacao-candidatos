@@ -1,7 +1,8 @@
 import openai
 import json
 import re
-from src.config.config_settings import OPENAI_KEY
+from datetime import datetime
+from src.config.config_settings import OPENAI_KEY, NIVEIS_IDIOMA, TIPOS_CONTRATO, DISPONIBILIDADE, SQL_SCHEMA
 
 
 class GPTService:
@@ -9,321 +10,398 @@ class GPTService:
         openai.api_key = OPENAI_KEY
         self.system_message = {
             "role": "system",
-            "content": """
-            Você é um analisador de currículos especializado na extração e estruturação de dados. 
-            **Extraia e preencha corretamente todos os campos especificados**, atribuindo os dados às colunas correspondentes no banco de dados.
-
-            **IMPORTANTE SOBRE ÁREAS:**
-            - Ao identificar áreas de interesse e atuação, SEMPRE consulte a lista de áreas existentes fornecida
-            - Use preferencialmente áreas já cadastradas para manter consistência
-            - Se encontrar uma área nova, ela deve ser MUITO similar às existentes
-            - Separe claramente áreas de interesse (aspirações) das áreas de atuação (experiência real)
-
-            **REGRAS GERAIS:**
-            - Caso alguma informação relevante não tenha uma coluna correspondente, **salve-a na coluna `campos_dinamicos`** com uma chave descritiva
-            - Sempre retorne **todas** as colunas esperadas, mesmo que vazias (use "" ou null)
-            - Converta **todos os valores textuais para lowercase**
-            - Utilize **sinônimos e variações** para garantir a extração correta
-            - **NÃO OMITA** campos e valores que possam ser derivados do conteúdo analisado
-            - NÃO INCLUA ```json NA RESPOSTA
-            """
+            "content": "Você é um analisador avançado de currículos especializado em extrair informações estruturadas."
         }
 
-    def _validate_and_fix_json(self, content):
-        """Valida e corrige problemas comuns no JSON"""
+    def analisar_curriculo(self, texto):
         try:
-            # Remove caracteres especiais e quebras de linha indesejadas
-            content = re.sub(r'[\n\r\t]', ' ', content)
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    self.system_message,
+                    self._criar_mensagem_usuario(texto)
+                ],
+                temperature=0.1
+            )
 
-            # Tenta encontrar o JSON válido dentro do texto
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if not json_match:
-                return self._get_empty_structure()
+            content = response.choices[0].message.content.strip()
 
-            json_str = json_match.group()
+            # Remove marcações de código
+            content = content.replace("```json", "").replace("```", "").strip()
 
             # Tenta fazer o parse do JSON
             try:
-                return json.loads(json_str)
+                dados = json.loads(content)
             except json.JSONDecodeError:
-                # Se falhar, tenta limpar e corrigir o JSON
-                json_str = re.sub(r',\s*}', '}', json_str)  # Remove vírgulas extras
-                json_str = re.sub(r',\s*]', ']', json_str)  # Remove vírgulas extras em arrays
-                json_str = re.sub(r'"}[\s\n]*,[\s\n]*"', '", "', json_str)  # Corrige formatação
-                return json.loads(json_str)
+                print("Erro ao fazer parse do JSON")
+                return self._get_estrutura_vazia()
+
+            # Valida e normaliza os dados
+            dados_validados = self._validar_dados(dados)
+
+            # Converte strings para lowercase
+            dados_validados = self._converter_strings_para_lowercase(dados_validados)
+
+            return dados_validados
 
         except Exception as e:
-            print(f"Erro ao processar JSON: {e}")
-            print("Content recebido:", content)
-            return self._get_empty_structure()
+            print(f"Erro na análise do currículo: {e}")
+            return self._get_estrutura_vazia()
 
-    def analisar_curriculo(self, texto):
+    def _converter_strings_para_lowercase(self, obj):
+        """
+        Converte apenas strings para lowercase, mantendo a estrutura dos objetos
+        """
+        if isinstance(obj, str):
+            return obj.lower()
+        elif isinstance(obj, dict):
+            return {key: self._converter_strings_para_lowercase(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._converter_strings_para_lowercase(item) for item in obj]
+        return obj
+
+    def _validar_dados(self, dados):
+        """
+        Valida e estrutura os dados extraídos
+        """
+        estrutura_padrao = self._get_estrutura_vazia()
+        dados_validados = {}
+
         try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[self.system_message, self.user_message(texto)],
-                temperature=0.1
-            )
-            content = response.choices[0].message.content.strip()
+            # Dados do profissional
+            profissional = {
+                'nome': str(dados.get('nome', '')),
+                'email': str(dados.get('email', '')),
+                'telefone': str(dados.get('telefone', '')),
+                'endereco': str(dados.get('endereco', '')),
+                'portfolio_url': str(dados.get('portfolio_url', '')),
+                'linkedin_url': str(dados.get('linkedin_url', '')),
+                'github_url': str(dados.get('github_url', '')),
+                'genero': self._inferir_genero(str(dados.get('nome', ''))),
+                'idade': dados.get('idade') if isinstance(dados.get('idade'), (int, float)) else None,
+                'pretensao_salarial': dados.get('pretensao_salarial') if isinstance(dados.get('pretensao_salarial'),
+                                                                                    (int, float)) else None,
+                'disponibilidade': dados.get('disponibilidade', 'imediata'),
+                'tipo_contrato': dados.get('tipo_contrato', 'clt'),
+                'observacoes_ia': dados.get('observacoes_ia', [])[:3] or ['perfil em análise', 'necessita validação',
+                                                                          'requer mais detalhes'],
+                'campos_dinamicos': dados.get('campos_dinamicos', {}) or {'observacoes': 'dados em análise'}
+            }
 
-            # Valida e corrige o JSON antes de retornar
-            dados = self._validate_and_fix_json(content)
+            # Ajusta disponibilidade e tipo de contrato para valores válidos
+            if profissional['disponibilidade'] not in DISPONIBILIDADE:
+                profissional['disponibilidade'] = 'imediata'
+            if profissional['tipo_contrato'] not in TIPOS_CONTRATO:
+                profissional['tipo_contrato'] = 'clt'
 
-            # Garante que todos os campos obrigatórios existem
-            dados = self._ensure_required_fields(dados)
+            # Faculdade
+            faculdade = {
+                'nome': str(dados.get('faculdade', {}).get('nome', '')),
+                'cidade': str(dados.get('faculdade', {}).get('cidade', '')),
+                'estado': str(dados.get('faculdade', {}).get('estado', '')),
+                'pais': str(dados.get('faculdade', {}).get('pais', 'brasil')),
+                'tipo': str(dados.get('faculdade', {}).get('tipo', ''))
+            }
 
-            return dados
+            # Profissão
+            profissao = {
+                'nome': str(dados.get('profissao', {}).get('nome', 'profissional')),
+                'descricao': str(dados.get('profissao', {}).get('descricao', ''))
+            }
+
+            # Arrays
+            idiomas = dados.get('idiomas', [])
+            areas_interesse = dados.get('areas_interesse', [])
+            areas_atuacao = dados.get('areas_atuacao', [])
+
+            # Monta estrutura final
+            dados_validados = {
+                'profissional': profissional,
+                'faculdade': faculdade,
+                'profissao': profissao,
+                'idiomas': idiomas,
+                'areas_interesse': areas_interesse,
+                'areas_atuacao': areas_atuacao
+            }
+
+            return dados_validados
 
         except Exception as e:
-            print(f"Erro: {e}")
-            print("Resposta:", content if 'content' in locals() else 'N/A')
-            return self._get_empty_structure()
+            print(f"Erro na validação: {e}")
+            return estrutura_padrao
 
-    def _ensure_required_fields(self, dados):
-        """Garante que todos os campos obrigatórios existem"""
-        template = self._get_empty_structure()
+    def _inferir_genero(self, nome):
+        """
+        Infere o gênero com base no primeiro nome
+        """
+        try:
+            nomes_masculinos = ['joao', 'jose', 'carlos', 'paulo', 'pedro', 'antonio',
+                                'francisco', 'adenilton', 'alexandre', 'anderson']
+            nomes_femininos = ['maria', 'ana', 'paula', 'julia', 'sandra', 'juliana']
 
-        if not isinstance(dados, dict):
-            return template
+            primeiro_nome = nome.lower().split()[0] if nome else ''
 
-        
-        def merge_dicts(template, data):
-            if not isinstance(data, dict):
-                return data
-            result = template.copy()[0]
-            for key, value in data.items():
-                if key in template and isinstance(template[key], dict):
-                    result[key] = merge_dicts(template[key], value)
-                else:
-                    result[key] = value
-            return result
+            if primeiro_nome in nomes_masculinos:
+                return 'masculino'
+            elif primeiro_nome in nomes_femininos:
+                return 'feminino'
+            return 'não identificado'
+        except:
+            return 'não identificado'
 
-        return merge_dicts(template, dados)
-
-
-    def user_message(self, texto, areas_existentes=None):
-        areas_contexto = ""
-        if areas_existentes:
-            areas_contexto = f"""
-                **AREAS JA CADASTRADAS NO SISTEMA:**
-                - Areas de Interesse: {[area['nome'] for area in areas_existentes.get('interesse', [])]}
-                - Areas de Atuacao: {[area['nome'] for area in areas_existentes.get('atuacao', [])]}
-
-                **IMPORTANTE:** Utilize preferencialmente estas areas existentes!
-                """
-
+    def _criar_mensagem_usuario(self, texto):
         return {
             "role": "user",
             "content": f"""
-                **Schema do banco de dados:**
-                ```
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                nome VARCHAR(255),
-                email VARCHAR(255),
-                genero VARCHAR(50),
-                idade INT,
-                instituto_formacao VARCHAR(255),
-                curso VARCHAR(255),
-                periodo VARCHAR(50),
-                tempo_experiencia FLOAT,
-                ultima_experiencia TEXT,
-                todas_experiencias TEXT,
-                habilidades TEXT,
-                linkedin VARCHAR(255),
-                github VARCHAR(255),
-                telefone VARCHAR(50),
-                data_criacao DATETIME,
-                pdf_conteudo LONGTEXT,
-                observacoes_ia TEXT,
-                campos_dinamicos TEXT,
-                areas_interesse TEXT,
-                areas_atuacao TEXT
-                ```
+            Analise o currículo e retorne um JSON EXATAMENTE com esta estrutura:
 
-                **Resumo do banco de dados (db_summary):**
-                - **id:** identificador unico autoincremental
-                - **nome:** nome completo do candidato em lowercase (ex: "joao silva")
-                - **email:** email de contato do candidato (ex: "joao@email.com")
-                - **genero:** masculino/feminino/nao identificado, baseado no nome se nao especificado (ex: "masculino")
-                - **idade:** idade numerica do candidato (ex: 25)
-                - **instituto_formacao:** nome da instituicao de ensino em lowercase (ex: "ufmg")
-                - **curso:** nome do curso em lowercase (ex: "engenharia de computacao")
-                - **periodo:** periodo atual ou status do curso em lowercase (ex: "5o periodo" ou "concluido")
-                - **tempo_experiencia:** anos de experiencia profissional como decimal (ex: 2.5)
-                - **ultima_experiencia:** descricao da experiencia mais recente em lowercase
-                - **todas_experiencias:** array JSON com historico de experiencias em lowercase
-                - **habilidades:** array JSON com lista de habilidades tecnicas em lowercase
-                - **linkedin:** URL completa do perfil do LinkedIn
-                - **github:** URL completa do perfil do GitHub
-                - **telefone:** numero de telefone com DDD e pais (ex: "+5531999999999")
-                - **data_criacao:** data e hora do cadastro (automatico)
-                - **pdf_conteudo:** conteudo completo do PDF em lowercase
-                - **observacoes_ia:** array JSON com observacoes relevantes em lowercase
-                - **campos_dinamicos:** objeto JSON com informacoes extras em lowercase
-                - **areas_interesse:** array JSON com areas de interesse profissional em lowercase
-                - **areas_atuacao:** array JSON com areas de experiencia comprovada em lowercase
+            {{
+                "nome": "string",
+                "email": "string",
+                "telefone": "string",
+                "endereco": "string",
+                "portfolio_url": "string",
+                "linkedin_url": "string",
+                "github_url": "string",
+                "genero": "string",
+                "idade": number,
+                "pretensao_salarial": number,
+                "disponibilidade": "string",
+                "tipo_contrato": "string",
 
-                {areas_contexto}
+                "profissao": {{
+                    "nome": "string",
+                    "descricao": "string"
+                }},
 
-                **Instrucoes para analise do curriculo:**
-                1. Extraia todas as informacoes do curriculo abaixo e retorne APENAS JSON com a estrutura exata:
-                ```json
-                {{
-                    "dados_basicos": {{
+                "faculdade": {{
+                    "nome": "string",
+                    "cidade": "string",
+                    "estado": "string",
+                    "pais": "string",
+                    "tipo": "string"
+                }},
+
+                "idiomas": [
+                    {{
                         "nome": "string",
-                        "email": "string",
-                        "genero": "string",
-                        "idade": number
-                    }},
-                    "formacao": {{
-                        "instituto_formacao": "string",
-                        "curso": "string",
-                        "periodo": "string"
-                    }},
-                    "experiencia": {{
-                        "tempo_experiencia": number,
-                        "areas_interesse": ["string"],
-                        "areas_atuacao": ["string"],
-                        "ultima_experiencia": "string",
-                        "todas_experiencias": ["string"]
-                    }},
-                    "habilidades": ["string"],
-                    "contato": {{
-                        "linkedin": "string",
-                        "github": "string",
-                        "telefone": "string"
-                    }},
-                    "observacoes_ia": ["string"],
-                    "campos_dinamicos": {{"chave": "valor"}}
-                }}
-                ```
+                        "nivel": "string",
+                        "certificacao": "string"
+                    }}
+                ],
 
-                2. **IMPORTANTE - Use EXATAMENTE estas chaves:**
-                   - instituto_formacao (nao use "instituto")
-                   - tempo_experiencia (nao use "tempo_total")
-                   - ultima_experiencia (nao use "ultima_exp")
-                   - todas_experiencias (nao use "todas_exp")
-                   - observacoes_ia (nao use "observacoes")
-                   - areas_interesse e areas_atuacao como arrays
+                "areas_interesse": [
+                    {{
+                        "nome": "string",
+                        "nivel_interesse": number
+                    }}
+                ],
 
-                3. **Nao deixe nenhum campo em branco no JSON.** Use "" ou [] para campos vazios.
+                "areas_atuacao": [
+                    {{
+                        "nome": "string",
+                        "anos_experiencia": number,
+                        "ultimo_cargo": "string",
+                        "ultima_empresa": "string",
+                        "descricao_atividades": "string"
+                    }}
+                ],
 
-                4. **Todo texto deve ser convertido para lowercase** para garantir consistencia.
+                "observacoes_ia": ["string"],
+                "campos_dinamicos": {{}}
+            }}
 
-                5. Se uma informacao relevante for encontrada e nao houver uma coluna correspondente, 
-                   salve-a dentro de `campos_dinamicos` no formato chave-valor.
+            REGRAS IMPORTANTES:
 
-                **Curriculo para analise:** 
-                {texto}
-                """
+            1. GÊNERO (obrigatório)
+            - Masculino: João, José, Carlos, Antonio, Francisco
+            - Feminino: Maria, Ana, Paula, Julia, Sandra
+            - Default: "não identificado"
+
+            2. DISPONIBILIDADE (valores válidos)
+            {DISPONIBILIDADE}
+
+            3. TIPO_CONTRATO (valores válidos)
+            {TIPOS_CONTRATO}
+
+            4. NÍVEIS DE IDIOMA (valores válidos)
+            {NIVEIS_IDIOMA}
+
+            5. NÍVEL DE INTERESSE
+            - 1: muito baixo
+            - 2: baixo
+            - 3: médio
+            - 4: alto
+            - 5: muito alto
+
+            6. REGRAS GERAIS
+            - Todo texto em lowercase
+            - Campos vazios: "" para texto, null para números
+            - Mínimo 3 observações da IA
+            - Campos dinâmicos para informações extras
+
+            Currículo para análise:
+            {texto}
+            """
         }
 
-    def analisar_curriculo(self, texto):
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[self.system_message, self.user_message(texto)],
-                temperature=0.1
-            )
-            content = response.choices[0].message.content.strip()
-
-
-            content = content.replace("```json", "").replace("```", "").strip()
-
-
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-
-                json_match = re.search(r"\{[\s\S]*\}", content)
-                if (json_match):
-                    return json.loads(json_match.group())
-                raise
-
-        except Exception as e:
-            print(f"Erro: {e}\nResposta: {content if 'content' in locals() else 'N/A'}")
-            return self._get_empty_structure()
+    def _get_estrutura_vazia(self):
+        """
+        Retorna a estrutura padrão com campos vazios
+        """
+        return {
+            'profissional': {
+                'nome': '',
+                'email': '',
+                'telefone': '',
+                'endereco': '',
+                'portfolio_url': '',
+                'linkedin_url': '',
+                'github_url': '',
+                'genero': 'não identificado',
+                'idade': None,
+                'pretensao_salarial': None,
+                'disponibilidade': 'imediata',
+                'tipo_contrato': 'clt',
+                'observacoes_ia': ['dados não processados', 'necessita análise', 'requer validação'],
+                'campos_dinamicos': {'status': 'pendente análise'}
+            },
+            'faculdade': {
+                'nome': '',
+                'cidade': '',
+                'estado': '',
+                'pais': 'brasil',
+                'tipo': ''
+            },
+            'profissao': {
+                'nome': 'profissional',
+                'descricao': ''
+            },
+            'idiomas': [],
+            'areas_interesse': [],
+            'areas_atuacao': []
+        }
 
     def gerar_query_sql(self, prompt, schema):
         try:
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Gere queries MySQL válidas e otimizadas para MySQL."},
-                    {"role": "user", "content": f"""
-                    Schema do banco de dados:
-                    {schema}
+                    {
+                        "role": "system",
+                        "content": """Você é um especialista em SQL que gera queries MySQL válidas usando exatamente estas tabelas:
 
-                    **Resumo do banco de dados (db_summary):**
-                    - **Tabela:** [nome_da_tabela]
-                    - **coluna1 (tipo)**: [exemplo de valor], [exemplo de valor]
-                    - **coluna2 (tipo)**: [exemplo de valor], [exemplo de valor]
-                    - **coluna3 (tipo)**: [exemplo de valor], [exemplo de valor]
+                        TABELAS PRINCIPAIS:
+                        1. profissionais: (dados principais do candidato)
+                           - Campos: id, nome, email, telefone, endereco, portfolio_url, linkedin_url, github_url, 
+                             profissao_id, faculdade_id, genero_id, idioma_principal_id, nivel_idioma_principal,
+                             idade, pretensao_salarial, disponibilidade, tipo_contrato
 
-                    **Instruções:**
-                    1. Gere uma query MySQL válida e otimizada para a seguinte necessidade:
-                    **{prompt}**
-                    2. Sempre retorne **apenas** a query MySQL, sem explicações adicionais.
-                    3. Nunca utilize ```sql```, apenas o comando puro.
-                    4. Para colunas do tipo `string`, sempre trate os valores em **lowercase**, garantindo consistência nos resultados.
-                    5. Utilize sinônimos ou variações para buscas em colunas `string`, ampliando a precisão da consulta.
-                    6. Evite consultas complexas desnecessárias e utilize índices quando possível para melhorar a performance.
+                        2. profissoes: (cadastro de profissões)
+                           - Campos: id, nome, descricao
 
-                    Gere a consulta conforme as diretrizes acima.
-                    """}
-                ]
+                        3. generos: (tipos de gênero)
+                           - Campos: id, nome, descricao
+
+                        4. faculdades: (instituições de ensino)
+                           - Campos: id, nome, cidade, estado, pais, tipo, ranking
+
+                        5. idiomas: (cadastro de idiomas)
+                           - Campos: id, nome, codigo
+
+                        6. areas_interesse: (áreas de interesse)
+                           - Campos: id, nome, descricao
+
+                        7. areas_atuacao: (áreas de atuação)
+                           - Campos: id, nome, descricao
+
+                        TABELAS DE RELACIONAMENTO:
+                        1. profissionais_idiomas: (idiomas do profissional)
+                           - Campos: profissional_id, idioma_id, nivel, certificacao
+
+                        2. profissionais_areas_interesse: (áreas de interesse do profissional)
+                           - Campos: profissional_id, area_interesse_id, nivel_interesse
+
+                        3. profissionais_areas_atuacao: (áreas de atuação do profissional)
+                           - Campos: profissional_id, area_atuacao_id, anos_experiencia, ultimo_cargo,
+                             ultima_empresa, data_inicio, data_fim, descricao_atividades
+
+                        REGRAS PARA QUERIES:
+                        1. Use aliases consistentes:
+                           - profissionais p
+                           - profissoes prof
+                           - generos g
+                           - faculdades f
+                           - idiomas i
+                           - areas_interesse ai
+                           - areas_atuacao aa
+                           - profissionais_idiomas pi
+                           - profissionais_areas_interesse pai
+                           - profissionais_areas_atuacao paa
+
+                        2. Sempre use LEFT JOIN para junções
+                        3. Sempre inclua as chaves de junção (ON table1.id = table2.table1_id)
+                        4. Converta textos para lowercase nos filtros (LOWER(campo) = LOWER('valor'))
+                        5. Use GROUP BY quando necessário agrupar resultados
+                        """
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""
+                        EXEMPLOS DE QUERIES VÁLIDAS:
+
+                        1. Buscar profissionais com suas profissões:
+                        SELECT p.nome, prof.nome as profissao 
+                        FROM profissionais p 
+                        LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+
+                        2. Buscar profissionais com idiomas:
+                        SELECT p.nome, i.nome as idioma, pi.nivel
+                        FROM profissionais p
+                        LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
+                        LEFT JOIN idiomas i ON pi.idioma_id = i.id
+
+                        3. Buscar profissionais por área de atuação:
+                        SELECT p.nome, p.idade, aa.nome as area_atuacao, paa.anos_experiencia
+                        FROM profissionais p
+                        LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
+                        LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
+                        WHERE LOWER(aa.nome) LIKE '%desenvolvimento%'
+
+                        4. Buscar profissionais por múltiplos critérios:
+                        SELECT 
+                            p.nome, 
+                            p.idade,
+                            g.nome as genero,
+                            prof.nome as profissao,
+                            f.nome as faculdade,
+                            i.nome as idioma_principal
+                        FROM profissionais p
+                        LEFT JOIN generos g ON p.genero_id = g.id
+                        LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+                        LEFT JOIN faculdades f ON p.faculdade_id = f.id
+                        LEFT JOIN idiomas i ON p.idioma_principal_id = i.id
+
+                        Agora gere uma query SQL otimizada para esta solicitação:
+                        {prompt}
+                        """
+                    }
+                ],
+                temperature=0.1
             )
-            return response.choices[0].message.content.strip()
+
+            query = response.choices[0].message.content.strip()
+
+            # Remove qualquer texto explicativo ou marcações
+            query_lines = query.split('\n')
+            for line in query_lines:
+                line = line.strip()
+                if line.upper().startswith(('SELECT', 'WITH')):
+                    return line
+
+            # Se não encontrou uma query válida, levanta exceção
+            raise Exception("Não foi possível gerar uma query SQL válida")
+
         except Exception as e:
-            print(f"Query Error: {e}")
+            print(f"Erro ao gerar query: {e}")
             return None
-
-    def processar_resposta(self, prompt, dados):
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Analise dados e responda perguntas."},
-                    {"role": "user", "content": f"""
-                    Dados disponíveis:
-                    {json.dumps(dados, indent=2)}
-
-                    Pergunta:
-                    {prompt}
-                    """}
-                ]
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Response Error: {e}")
-            return "Erro ao processar resposta."
-
-
-        def _get_empty_structure(self):
-            return {
-                "dados_basicos": {
-                    "nome": "",
-                    "email": "",
-                    "genero": "",
-                    "idade": None
-                },
-                "formacao": {
-                    "instituto_formacao": "",
-                    "periodo": ""
-                },
-                "experiencia": {
-                    "tempo_experiencia": 0,
-                    "areas_interesse": [],
-                    "areas_atuacao": [],
-                    "ultima_experiencia": "",
-                    "todas_experiencias": []
-                },
-                "habilidades": [],
-                "contato": {
-                    "linkedin": "",
-                    "github": "",
-                    "telefone": ""
-                },
-                "observacoes_ia": [],
-                "campos_dinamicos": {}
-            }

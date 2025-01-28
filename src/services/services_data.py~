@@ -64,14 +64,8 @@ class DataService:
         Busca ou cria um gênero no banco de dados
         """
         try:
-            # Trata o caso em que genero_data é uma string
-            if isinstance(genero_data, str):
-                nome = genero_data.lower().strip()
-                descricao = ""
-            else:
-                # Trata o caso em que genero_data é um dicionário
-                nome = genero_data.get('nome', 'não identificado').lower().strip()
-                descricao = genero_data.get('descricao', '').lower().strip()
+            nome = genero_data.get('nome', 'não identificado').lower().strip()
+            descricao = genero_data.get('descricao', '').lower().strip()
 
             # Validar se é um dos valores permitidos
             if nome not in ['masculino', 'feminino', 'não identificado']:

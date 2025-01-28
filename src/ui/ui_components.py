@@ -1,249 +1,9 @@
-# src/ui/ui_components.py
 import streamlit as st
 import pandas as pd
 from src.config.config_settings import SQL_SCHEMA
 from src.services.services_gpt import GPTService
 from src.services.services_pdf import PDFService
 from src.services.services_data import DataService
-
-
-# src/ui/ui_components.py
-def render_query():
-    st.header("Consultas Personalizadas")
-
-    tipo_consulta = st.selectbox(
-        "Tipo de Consulta",
-        [
-            "Geral",
-            "Busca por Habilidades",
-            "Filtro por Experiência",
-            "Análise de Áreas",
-            "Busca por Formação",
-            "Ranking de Candidatos"
-        ]
-    )
-
-    # Dicas e exemplos baseados no tipo selecionado
-    exemplos = {
-        "Geral": [
-            "Mostre todos os candidatos que têm experiência com Python",
-            "Liste os candidatos ordenados por tempo de experiência",
-            "Quais candidatos têm GitHub cadastrado?"
-        ],
-        "Busca por Habilidades": [
-            "Encontre candidatos que conhecem React e Node.js",
-            "Quais candidatos têm experiência com banco de dados?",
-            "Liste as habilidades mais comuns entre os candidatos"
-        ],
-        "Filtro por Experiência": [
-            "Candidatos com mais de 2 anos de experiência",
-            "Quem tem experiência em desenvolvimento fullstack?",
-            "Mostre a média de experiência por área de atuação"
-        ],
-        "Análise de Áreas": [
-            "Quais são as áreas de interesse mais comuns?",
-            "Candidatos que têm interesse em IA",
-            "Compare áreas de interesse com áreas de atuação"
-        ],
-        "Busca por Formação": [
-            "Candidatos formados em Engenharia",
-            "Liste as instituições de ensino",
-            "Quem está cursando ciência da computação?"
-        ],
-        "Ranking de Candidatos": [
-            "Top 5 candidatos com mais habilidades técnicas",
-            "Ranking por tempo de experiência",
-            "Candidatos mais qualificados em desenvolvimento"
-        ]
-    }
-
-    # Mostra exemplos para o tipo selecionado
-    st.info(f"💡 Exemplos de consultas para {tipo_consulta}:")
-    for exemplo in exemplos[tipo_consulta]:
-        st.markdown(f"• {exemplo}")
-
-    # Campo de consulta e botão
-    prompt = st.text_area("Digite sua consulta:", height=100)
-    if st.button("Consultar"):
-        try:
-            with st.spinner('Gerando e executando consulta...'):
-                gpt_service = GPTService()
-                data_service = DataService()
-
-                # Adiciona o tipo de consulta ao contexto
-                contexto = f"""
-                Tipo de consulta: {tipo_consulta}
-                Consulta do usuário: {prompt}
-
-                Utilize as seguintes tabelas relacionadas:
-                1. candidatos (dados básicos, formação e experiência)
-                2. areas (áreas de interesse e atuação)
-                3. candidato_areas (relacionamento entre candidatos e áreas)
-
-                Considere que:
-                - Campos JSON devem ser tratados com JSON_CONTAINS ou JSON_EXTRACT
-                - Use LOWER() para comparações case-insensitive
-                - Junte as tabelas quando necessário para informações de áreas
-                """
-
-                schema = "Considere a tabela a seguir: " + SQL_SCHEMA
-
-                query = gpt_service.gerar_query_sql(contexto, schema)
-                if query:
-                    st.code(query, language="sql")
-                    try:
-                        resultados = data_service.executar_query(query)
-
-                        if resultados:
-                            df = pd.DataFrame(resultados)
-                            st.dataframe(df)
-
-                            # Adiciona botão de download
-                            csv = df.to_csv(index=False)
-                            st.download_button(
-                                "📥 Baixar Resultados (CSV)",
-                                csv,
-                                "resultados_consulta.csv",
-                                "text/csv",
-                                key='download-csv'
-                            )
-                        else:
-                            st.info("Nenhum resultado encontrado")
-                    except Exception as e:
-                        st.error(f"Erro ao executar a query: {str(e)}")
-                else:
-                    st.error("Não foi possível gerar uma query SQL válida.")
-        except Exception as e:
-            st.error(f"Erro na consulta: {str(e)}")
-# src/ui/ui_components.py
-
-
-
-def safe_json_loads(value, default=None):
-    if not value:
-        return default or []
-    if isinstance(value, (list, dict)):
-        return value
-    try:
-        return json.loads(value)
-    except:
-        return default or []
-
-
-def safe_join(value, separator=", "):
-    if not value:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (list, tuple)):
-        return separator.join(str(v) for v in value if v)
-    return str(value)
-
-
-def render_viewer():
-    st.header("Visualização de Dados")
-
-    try:
-        data_service = DataService()
-
-        # Busca dados de todas as tabelas
-        with st.spinner('Carregando dados...'):
-            # Tabela candidatos
-            query_candidatos = "SELECT * FROM candidatos"
-            dados_candidatos = data_service.executar_query(query_candidatos)
-
-            # Tabela areas
-            query_areas = "SELECT * FROM areas ORDER BY total_uso DESC"
-            dados_areas = data_service.executar_query(query_areas)
-
-            # Tabela candidato_areas com JOIN para nomes
-            query_candidato_areas = """
-            SELECT ca.id, c.nome as candidato_nome, a.nome as area_nome, 
-                   ca.tipo, a.total_uso
-            FROM candidato_areas ca
-            JOIN candidatos c ON ca.candidato_id = c.id
-            JOIN areas a ON ca.area_id = a.id
-            ORDER BY c.nome, ca.tipo
-            """
-            dados_candidato_areas = data_service.executar_query(query_candidato_areas)
-
-            # Define as tabs
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📊 Dashboard",
-                "👥 Candidatos",
-                "🎯 Áreas",
-                "🔗 Relacionamentos",
-                "📝 Dados Completos"
-            ])
-
-            with tab1:
-                st.subheader("Dashboard")
-
-                # Métricas gerais
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total de Candidatos", len(dados_candidatos))
-                with col2:
-                    st.metric("Total de Áreas", len(dados_areas))
-                with col3:
-                    st.metric("Total de Relacionamentos", len(dados_candidato_areas))
-
-                # Top áreas
-                st.subheader("Top 10 Áreas mais utilizadas")
-                df_top_areas = pd.DataFrame(dados_areas[:10])
-                if not df_top_areas.empty:
-                    df_top_areas = df_top_areas[['nome', 'tipo', 'total_uso']]
-                    st.dataframe(df_top_areas, use_container_width=True)
-
-            with tab2:
-                st.subheader("Tabela de Candidatos")
-                if dados_candidatos:
-                    df_candidatos = pd.DataFrame(dados_candidatos)
-                    # Remove campos muito grandes
-                    if 'pdf_conteudo' in df_candidatos.columns:
-                        df_candidatos = df_candidatos.drop('pdf_conteudo', axis=1)
-                    st.dataframe(df_candidatos, use_container_width=True)
-                else:
-                    st.info("Nenhum candidato encontrado")
-
-            with tab3:
-                st.subheader("Tabela de Áreas")
-                if dados_areas:
-                    df_areas = pd.DataFrame(dados_areas)
-                    st.dataframe(df_areas, use_container_width=True)
-                else:
-                    st.info("Nenhuma área encontrada")
-
-            with tab4:
-                st.subheader("Relacionamentos Candidato-Áreas")
-                if dados_candidato_areas:
-                    df_rel = pd.DataFrame(dados_candidato_areas)
-                    st.dataframe(df_rel, use_container_width=True)
-                else:
-                    st.info("Nenhum relacionamento encontrado")
-
-            with tab5:
-                st.subheader("Dados Completos dos Candidatos")
-                if dados_candidatos:
-                    dados_limpos = []
-                    for d in dados_candidatos:
-                        d_clean = d.copy()
-                        if 'pdf_conteudo' in d_clean:
-                            del d_clean['pdf_conteudo']
-                        for campo in ['habilidades', 'todas_experiencias', 'observacoes_ia', 'campos_dinamicos']:
-                            if campo in d_clean:
-                                d_clean[campo] = safe_join(safe_json_loads(d_clean.get(campo)))
-                        dados_limpos.append(d_clean)
-
-                    df_completo = pd.DataFrame(dados_limpos)
-                    st.dataframe(df_completo, use_container_width=True)
-                else:
-                    st.info("Nenhum dado encontrado")
-
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {str(e)}")
-        st.exception(e)
-
 
 
 def render_upload():
@@ -265,9 +25,296 @@ def render_upload():
                 try:
                     texto_pdf = pdf_service.extrair_texto(arquivo)
                     dados = gpt_service.analisar_curriculo(texto_pdf)
-                    if data_service.salvar_candidato(dados, texto_pdf):
-                        st.success(f"✅ {arquivo.name} processado com sucesso")
-                    else:
-                        st.error(f"❌ Erro ao salvar {arquivo.name}")
+                    data_service.salvar_profissional(dados, texto_pdf)
+                    st.success(f"✅ {arquivo.name} processado com sucesso")
                 except Exception as e:
-                    st.error(f"❌ Erro ao processar {arquivo.name}: {str(e)}")
+                    st.error(f"❌ Erro ao processar {arquivo.name}: {e}")
+
+
+def render_viewer():
+    st.header("Visualização dos Profissionais")
+
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        nome_filtro = st.text_input("Filtrar por nome:")
+    with col2:
+        profissao_filtro = st.text_input("Filtrar por profissão:")
+    with col3:
+        area_filtro = st.text_input("Filtrar por área de atuação:")
+
+    filtros = {}
+    if nome_filtro:
+        filtros['nome'] = nome_filtro
+    if profissao_filtro:
+        filtros['profissao'] = profissao_filtro
+    if area_filtro:
+        filtros['area_atuacao'] = area_filtro
+
+    try:
+        data_service = DataService()
+        dados = data_service.buscar_profissionais(filtros)
+
+        if dados:
+            # Converter dados para DataFrame
+            df = pd.DataFrame(dados)
+
+            # Exibir métricas
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total de Profissionais", len(df))
+            with col2:
+                st.metric("Profissões Únicas", df['profissao'].nunique())
+            with col3:
+                st.metric("Idade Média", round(df['idade'].mean(), 1))
+            with col4:
+                st.metric("Áreas de Atuação", df['areas_atuacao'].nunique())
+
+            # Exibir tabela detalhada
+            st.dataframe(df)
+
+            # Gráficos
+            col1, col2 = st.columns(2)
+            with col1:
+                profissoes_count = df['profissao'].value_counts()
+                st.bar_chart(profissoes_count)
+                st.caption("Distribuição de Profissões")
+
+            with col2:
+                areas_count = df['areas_atuacao'].str.split(',').explode().value_counts()
+                st.bar_chart(areas_count)
+                st.caption("Áreas de Atuação mais Comuns")
+
+        else:
+            st.info("Nenhum profissional encontrado com os filtros aplicados")
+
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {e}")
+
+
+def render_query():
+    st.header("Consultas Personalizadas")
+
+    # Mostrar estrutura do banco na sidebar
+    st.sidebar.subheader("Estrutura do Banco de Dados")
+
+    # Tabelas principais com suas colunas
+    tabelas = {
+        "profissionais": {
+            "descrição": "Tabela principal com dados dos profissionais",
+            "colunas": [
+                "id", "nome", "email", "telefone", "endereco", "portfolio_url",
+                "linkedin_url", "github_url", "profissao_id", "faculdade_id",
+                "genero_id", "idioma_principal_id", "nivel_idioma_principal",
+                "idade", "pretensao_salarial", "disponibilidade", "tipo_contrato"
+            ]
+        },
+        "profissoes": {
+            "descrição": "Cadastro de profissões",
+            "colunas": ["id", "nome", "descricao"]
+        },
+        "generos": {
+            "descrição": "Tipos de gênero",
+            "colunas": ["id", "nome", "descricao"]
+        },
+        "faculdades": {
+            "descrição": "Cadastro de instituições de ensino",
+            "colunas": ["id", "nome", "cidade", "estado", "pais", "tipo", "ranking"]
+        },
+        "idiomas": {
+            "descrição": "Cadastro de idiomas",
+            "colunas": ["id", "nome", "codigo"]
+        },
+        "areas_interesse": {
+            "descrição": "Áreas de interesse profissional",
+            "colunas": ["id", "nome", "descricao"]
+        },
+        "areas_atuacao": {
+            "descrição": "Áreas de atuação profissional",
+            "colunas": ["id", "nome", "descricao"]
+        }
+    }
+
+    # Tabelas de relacionamento
+    relacionamentos = {
+        "profissionais_idiomas": {
+            "descrição": "Relaciona profissionais e seus idiomas",
+            "colunas": ["profissional_id", "idioma_id", "nivel", "certificacao"]
+        },
+        "profissionais_areas_interesse": {
+            "descrição": "Relaciona profissionais e suas áreas de interesse",
+            "colunas": ["profissional_id", "area_interesse_id", "nivel_interesse"]
+        },
+        "profissionais_areas_atuacao": {
+            "descrição": "Relaciona profissionais e suas áreas de atuação",
+            "colunas": [
+                "profissional_id", "area_atuacao_id", "anos_experiencia",
+                "ultimo_cargo", "ultima_empresa", "descricao_atividades"
+            ]
+        }
+    }
+
+    # Exibir tabelas e colunas na sidebar
+    tabelas_expander = st.sidebar.expander("Tabelas Principais")
+    with tabelas_expander:
+        for nome, info in tabelas.items():
+            st.write(f"**{nome}**")
+            st.write(f"_{info['descrição']}_")
+            st.write("Colunas:")
+            st.code(", ".join(info['colunas']))
+            st.write("---")
+
+    relacionamentos_expander = st.sidebar.expander("Tabelas de Relacionamento")
+    with relacionamentos_expander:
+        for nome, info in relacionamentos.items():
+            st.write(f"**{nome}**")
+            st.write(f"_{info['descrição']}_")
+            st.write("Colunas:")
+            st.code(", ".join(info['colunas']))
+            st.write("---")
+
+    # Exemplos de consultas mais completos
+    st.subheader("Exemplos de Consultas")
+    exemplos = {
+        "Profissionais por Área": {
+            "descrição": "Profissionais que atuam com desenvolvimento",
+            "query": "Encontre todos os profissionais que atuam na área de desenvolvimento, mostrando nome, idade, faculdade e tempo de experiência"
+        },
+        "Experiência por Área": {
+            "descrição": "Média de experiência por área",
+            "query": "Calcule a média de anos de experiência por área de atuação, ordenando do maior para o menor"
+        },
+        "Profissionais por Idioma": {
+            "descrição": "Profissionais por idioma e nível",
+            "query": "Liste profissionais que falam inglês em nível avançado ou fluente"
+        },
+        "Habilidades Comuns": {
+            "descrição": "Skills mais frequentes",
+            "query": "Mostre as 10 áreas de atuação mais comuns entre os profissionais"
+        },
+        "Faixa Salarial": {
+            "descrição": "Pretensão salarial por área",
+            "query": "Calcule a média, mínima e máxima pretensão salarial por área de atuação"
+        },
+        "Formação Acadêmica": {
+            "descrição": "Análise por instituição",
+            "query": "Liste as faculdades com mais profissionais formados, incluindo a cidade e estado"
+        }
+    }
+
+    col1, col2 = st.columns(2)
+    exemplo_selecionado = None
+
+    with col1:
+        for titulo, info in list(exemplos.items())[:3]:
+            if st.button(titulo, help=info['descrição']):
+                exemplo_selecionado = info['query']
+
+    with col2:
+        for titulo, info in list(exemplos.items())[3:]:
+            if st.button(titulo, help=info['descrição']):
+                exemplo_selecionado = info['query']
+
+    # Campo de consulta
+    query_placeholder = """
+    Exemplos do que você pode perguntar:
+    - Quais profissionais têm mais de 5 anos de experiência em desenvolvimento?
+    - Qual a média salarial pretendida por área de atuação?
+    - Quais faculdades formaram mais profissionais?
+    """
+
+    prompt = st.text_area(
+        "Descreva sua consulta:",
+        value=exemplo_selecionado if exemplo_selecionado else st.session_state.get('query_prompt', ''),
+        height=100,
+        help=query_placeholder
+    )
+
+    if st.button("Consultar", type="primary"):
+        try:
+            with st.spinner("Gerando consulta..."):
+                gpt_service = GPTService()
+                data_service = DataService()
+
+                # Gerar e mostrar query
+                query = gpt_service.gerar_query_sql(prompt, SQL_SCHEMA)
+
+                if query:
+                    # Mostrar a query gerada
+                    with st.expander("Ver SQL Gerado"):
+                        st.code(query, language="sql")
+
+                    # Executar query
+                    try:
+                        with st.spinner("Executando consulta..."):
+                            resultados = data_service.executar_query(query)
+
+                        if resultados:
+                            # Converter para DataFrame
+                            df = pd.DataFrame(resultados)
+
+                            # Mostrar resultados em tabela
+                            st.subheader("Resultados")
+                            st.dataframe(df)
+
+                            # Estatísticas básicas se houver dados numéricos
+                            numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+                            if len(numeric_cols) > 0:
+                                st.subheader("Estatísticas")
+                                st.dataframe(df[numeric_cols].describe())
+
+                            # Visualização
+                            if len(df) > 1 and len(numeric_cols) > 0:
+                                st.subheader("Visualização")
+
+                                # Tipo de gráfico
+                                chart_type = st.selectbox(
+                                    "Tipo de gráfico:",
+                                    ["Barras", "Linha", "Dispersão"]
+                                )
+
+                                # Seleção de colunas
+                                if len(numeric_cols) > 0:
+                                    cols_to_plot = st.multiselect(
+                                        "Escolha as colunas para visualizar:",
+                                        numeric_cols,
+                                        default=[numeric_cols[0]] if len(numeric_cols) > 0 else []
+                                    )
+
+                                    if cols_to_plot:
+                                        if chart_type == "Barras":
+                                            st.bar_chart(df[cols_to_plot])
+                                        elif chart_type == "Linha":
+                                            st.line_chart(df[cols_to_plot])
+                                        else:  # Dispersão
+                                            if len(cols_to_plot) >= 2:
+                                                st.scatter_chart(data=df, x=cols_to_plot[0], y=cols_to_plot[1])
+                                            else:
+                                                st.warning(
+                                                    "Selecione pelo menos duas colunas para o gráfico de dispersão")
+                        else:
+                            st.info("Nenhum resultado encontrado")
+
+                    except Exception as e:
+                        st.error(f"Erro ao executar a consulta: {str(e)}")
+                else:
+                    st.error("Não foi possível gerar uma consulta SQL válida")
+
+        except Exception as e:
+            st.error(f"Erro na consulta: {str(e)}")
+
+    # Dicas de uso
+    with st.expander("Dicas de Uso"):
+        st.markdown("""
+        ### Como fazer consultas efetivas:
+        1. **Seja específico**: Inclua os detalhes que você quer ver no resultado
+        2. **Use os nomes das colunas**: Consulte a estrutura do banco na barra lateral
+        3. **Combine informações**: Você pode relacionar dados de diferentes tabelas
+        4. **Filtre resultados**: Especifique condições para filtrar os dados
+
+        ### Exemplos de consultas complexas:
+        - "Mostre os profissionais com mais de 3 anos de experiência em desenvolvimento que falam inglês fluente"
+        - "Liste as áreas de atuação com maior média salarial pretendida, incluindo o número de profissionais"
+        - "Encontre as faculdades que formaram mais profissionais em tecnologia nos últimos 5 anos"
+        """)

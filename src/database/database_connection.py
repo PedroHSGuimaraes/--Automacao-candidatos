@@ -1,4 +1,4 @@
-# src/database/database_connection.py
+
 import mysql.connector
 from src.config.config_settings import DB_CONFIG, SQL_SCHEMA
 
@@ -10,9 +10,9 @@ class DatabaseConnection:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
 
-            # Executa as queries do schema separadamente
+
             for query in SQL_SCHEMA.split(';'):
-                if query.strip():  # Ignora strings vazias
+                if query.strip():
                     cursor.execute(query.strip())
             conn.commit()
 
