@@ -132,23 +132,75 @@ class GPTService:
 
     def _inferir_genero(self, nome):
         """
-        Infere o gênero com base no primeiro nome
+        Infere o gênero com base no primeiro nome usando regras de nomes brasileiros
         """
         try:
-            nomes_masculinos = ['joao', 'jose', 'carlos', 'paulo', 'pedro', 'antonio',
-                                'francisco', 'adenilton', 'alexandre', 'anderson']
-            nomes_femininos = ['maria', 'ana', 'paula', 'julia', 'sandra', 'juliana']
+            # Se não tiver nome, retorna não identificado
+            if not nome or not isinstance(nome, str):
+                return 'não identificado'
 
-            primeiro_nome = nome.lower().split()[0] if nome else ''
+            # Normaliza o primeiro nome (remove espaços extras, acentos e converte para minúsculo)
+            import unicodedata
+            primeiro_nome = unicodedata.normalize('NFKD', nome.split()[0]) \
+                .encode('ASCII', 'ignore') \
+                .decode('ASCII') \
+                .lower()
 
+            # Dicionário de nomes masculinos comuns no Brasil
+            nomes_masculinos = {
+                # Nomes tradicionais
+                'joao', 'jose', 'antonio', 'francisco', 'carlos', 'paulo', 'pedro', 'lucas',
+                'luiz', 'luis', 'marcos', 'gabriel', 'rafael', 'daniel', 'marcelo', 'bruno',
+                'eduardo', 'felipe', 'rodrigo', 'manoel', 'manuel', 'jorge', 'andre', 'raul',
+                'victor', 'vitor', 'sergio', 'sergio', 'claudio', 'cesar', 'ricardo',
+                # Nomes compostos comuns
+                'joao paulo', 'jose carlos', 'luiz carlos', 'jean carlos', 'joao pedro',
+                # Nomes modernos
+                'enzo', 'valentim', 'theo', 'lorenzo', 'miguel', 'arthur', 'bernardo',
+                'heitor', 'davi', 'david', 'theo', 'pedro henrique', 'pietro', 'benjamin',
+                # Variações internacionais
+                'john', 'michael', 'william', 'james', 'robert', 'david', 'richard',
+                # Sufixos tipicamente masculinos
+                *[nome for nome in [primeiro_nome] if nome.endswith(('son', 'ton', 'ilton', 'ilson', 'anderson'))]
+            }
+
+            # Dicionário de nomes femininos comuns no Brasil
+            nomes_femininos = {
+                # Nomes tradicionais
+                'maria', 'ana', 'juliana', 'adriana', 'julia', 'beatriz', 'jessica',
+                'fernanda', 'patricia', 'paula', 'alice', 'bruna', 'amanda', 'rosa',
+                'carolina', 'mariana', 'vanessa', 'camila', 'daniela', 'isabela', 'isabel',
+                'larissa', 'leticia', 'sandra', 'priscila', 'carla', 'monica', 'angela',
+                # Nomes compostos comuns
+                'maria jose', 'ana maria', 'ana paula', 'maria helena', 'maria eduarda',
+                # Nomes modernos
+                'sophia', 'helena', 'valentina', 'cecilia', 'clara', 'iris', 'aurora',
+                'bella', 'maya', 'maia', 'isis', 'lara', 'agnes', 'louise', 'luiza',
+                # Variações internacionais
+                'jennifer', 'elizabeth', 'sarah', 'michelle', 'emma', 'olivia', 'lisa',
+                # Sufixos tipicamente femininos
+                *[nome for nome in [primeiro_nome] if nome.endswith(('ana', 'ela', 'ila', 'ina'))]
+            }
+
+            # Regras de inferência
             if primeiro_nome in nomes_masculinos:
                 return 'masculino'
             elif primeiro_nome in nomes_femininos:
                 return 'feminino'
-            return 'não identificado'
-        except:
+            # Análise de terminações comuns
+            elif primeiro_nome.endswith(('son', 'ton', 'ilton', 'ilson')):
+                return 'masculino'
+            elif primeiro_nome.endswith(('a', 'ana', 'ela', 'ila', 'ina')):
+                # Exceções conhecidas para nomes masculinos terminados em 'a'
+                if primeiro_nome not in ['joshua', 'luca', 'nokia', 'costa', 'moura']:
+                    return 'feminino'
+
+            # Se não conseguiu identificar, retorna não identificado
             return 'não identificado'
 
+        except Exception as e:
+            print(f"Erro ao inferir gênero do nome '{nome}': {e}")
+            return 'não identificado'
     def _criar_mensagem_usuario(self, texto):
         return {
             "role": "user",
@@ -282,76 +334,116 @@ class GPTService:
             'areas_atuacao': []
         }
 
-    def gerar_query_sql(self, prompt, schema):
+    def gerar_query_sql(self, prompt, schema=None):
+        """
+        Gera uma query SQL com base em uma pergunta em linguagem natural.
+        O parâmetro 'schema' é opcional.
+        """
         try:
+            # Cria a requisição de completions no modelo GPT-4o-mini
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
-                        "content": """Você é um especialista em SQL que gera queries MySQL válidas usando exatamente estas tabelas:
+                        "content": """Você é um analista SQL. Sua função é gerar queries MySQL para buscar dados em um banco com as seguintes tabelas:
 
-                        TABELAS PRINCIPAIS:
-                        1. profissionais: (dados principais do candidato)
-                           - Campos: id, nome, email, telefone, endereco, portfolio_url, linkedin_url, github_url, 
-                             profissao_id, faculdade_id, genero_id, idioma_principal_id, nivel_idioma_principal,
-                             idade, pretensao_salarial, disponibilidade, tipo_contrato
+                        1. profissionais (p)
+                           - id, nome, email, telefone, endereco
+                           - portfolio_url, linkedin_url, github_url
+                           - profissao_id, faculdade_id, genero_id
+                           - idioma_principal_id, nivel_idioma_principal
+                           - idade, pretensao_salarial, disponibilidade, tipo_contrato
 
-                        2. profissoes: (cadastro de profissões)
-                           - Campos: id, nome, descricao
+                        2. profissoes (prof)
+                           - id, nome, descricao
 
-                        3. generos: (tipos de gênero)
-                           - Campos: id, nome, descricao
+                        3. faculdades (f)
+                           - id, nome, cidade, estado, pais, tipo
 
-                        4. faculdades: (instituições de ensino)
-                           - Campos: id, nome, cidade, estado, pais, tipo, ranking
+                        4. generos (g)
+                           - id, nome [masculino, feminino, não identificado]
 
-                        5. idiomas: (cadastro de idiomas)
-                           - Campos: id, nome, codigo
+                        5. idiomas (i)
+                           - id, nome, codigo
 
-                        6. areas_interesse: (áreas de interesse)
-                           - Campos: id, nome, descricao
+                        6. Relacionamentos:
+                           - profissionais_idiomas (pi): profissional_id, idioma_id, nivel
+                           - profissionais_areas_interesse (pai): profissional_id, area_interesse_id
+                           - profissionais_areas_atuacao (paa): profissional_id, area_atuacao_id, anos_experiencia
 
-                        7. areas_atuacao: (áreas de atuação)
-                           - Campos: id, nome, descricao
+                        EXEMPLOS:
+                        1. "Buscar desenvolvedores que falam inglês"
+                           → SELECT DISTINCT p.nome, p.email, prof.nome as profissao, i.nome as idioma, pi.nivel
+                             FROM profissionais p
+                             LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+                             LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
+                             LEFT JOIN idiomas i ON pi.idioma_id = i.id
+                             WHERE LOWER(i.nome) = 'inglês'
+                             AND LOWER(prof.nome) LIKE '%desenvolv%'
 
-                        REGRAS:
-                        1. Use aliases padrão: profissionais p, profissoes prof, generos g, etc
-                        2. Use LEFT JOIN para junções
-                        3. Retorne apenas a query SQL, sem explicações
-                        4. Query deve ser completa em uma única linha (sem quebras)
+                        2. "Listar profissionais do gênero feminino"
+                           → SELECT p.nome, p.email, prof.nome as profissao, g.nome as genero
+                             FROM profissionais p
+                             LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+                             LEFT JOIN generos g ON p.genero_id = g.id
+                             WHERE LOWER(g.nome) = 'feminino'
                         """
                     },
                     {
                         "role": "user",
                         "content": f"""
-                        EXEMPLOS DE QUERIES VÁLIDAS:
-                        SELECT p.nome, prof.nome as profissao FROM profissionais p LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+                        Gere uma query SQL para esta pergunta:
 
-                        SELECT p.nome, i.nome as idioma, pi.nivel FROM profissionais p LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id LEFT JOIN idiomas i ON pi.idioma_id = i.id
-
-                        SELECT p.nome, aa.nome as area, paa.anos_experiencia FROM profissionais p LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
-
-                        Gere uma query SQL em uma única linha para esta solicitação:
                         {prompt}
+
+                        REGRAS:
+                        1. Use LEFT JOIN para junções
+                        2. Use aliases padrão (p, prof, f, g, i, pi, paa, pai)
+                        3. Use LOWER() em comparações de texto
+                        4. Sempre inclua nome e email nas colunas
+                        5. Use DISTINCT se necessário
+                        6. RETORNE APENAS A QUERY, nada mais
+                        7. **Nao pode começar com ```sql ou terminar com ``` ou algo do tipo
                         """
                     }
                 ],
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=1000
             )
 
+            # Extrai e limpa a resposta
             query = response.choices[0].message.content.strip()
+            print("Query gerada:", query)  # Log para debug
 
-            # Limpa a query
+            # Remove quebras de linha e espaços extras
             query = query.replace('\n', ' ').replace('\r', ' ')
-            query = ' '.join(query.split())  # Remove espaços extras
+            query = ' '.join(query.split())
 
-            # Verifica se é uma query SQL válida
-            if not any(query.upper().startswith(word) for word in ['SELECT', 'WITH']):
-                raise Exception("Query inválida gerada")
+            # Validação básica
+            query_upper = query.upper()
+            if not query_upper.startswith('SELECT'):
+                print("Query não começa com SELECT:", query)
+                raise Exception("Query deve começar com SELECT")
+
+            if 'FROM' not in query_upper:
+                print("Query não contém FROM:", query)
+                raise Exception("Query deve conter FROM")
+
+            # Verifica a presença de palavras-chave obrigatórias
+            required_keywords = ['SELECT', 'FROM', 'PROFISSIONAIS']
+            missing_keywords = [word for word in required_keywords if word not in query_upper]
+            if missing_keywords:
+                print(f"Palavras-chave faltando: {missing_keywords}")
+                raise Exception(f"Query deve conter: {', '.join(missing_keywords)}")
+
+            # Ajusta aliases se necessário
+            if ' FROM PROFISSIONAIS ' in query_upper and ' FROM PROFISSIONAIS P' not in query_upper:
+                query = query.replace('FROM profissionais ', 'FROM profissionais p ')
 
             return query
 
         except Exception as e:
             print(f"Erro ao gerar query: {e}")
+            print("Prompt original:", prompt)
             return None
