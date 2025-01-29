@@ -296,7 +296,7 @@ class GPTService:
         **8.Super importante Profissão similares:
             -sempre salvar as profissoes segundo para nao repedir {profissoes_classes}
             -sempre salvar as areas de interesse e atuacao para nao repedir {profissoes_classes}
-            -sempre salvar as areas de atuação para nao repedir {profissoes_classes}
+            -sempre salvar as areas para nao repedir {profissoes_classes}
             
             
             Currículo para análise:
