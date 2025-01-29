@@ -266,23 +266,13 @@ class DataService:
     def _salvar_area_interesse(self, profissional_id, area):
         try:
             nome = area['nome'].lower().strip()
-            nome_padrao = None
+            areas_interesse_similares = profissoes_classes
+            nome_padrao = nome
+            for area_interesse, similares in areas_interesse_similares.items():
+                if nome in similares:
+                    nome_padrao = area_interesse
+                    break
 
-            # Primeiro procura correspondência exata
-            if nome in profissoes_classes:
-                nome_padrao = nome
-            else:
-                # Procura nas listas de similares
-                for area_padrao, similares in profissoes_classes.items():
-                    if nome in similares:
-                        nome_padrao = area_padrao
-                        break
-
-            # Se não encontrou, mantém o original
-            if nome_padrao is None:
-                nome_padrao = nome
-
-            # Busca ou cria a área
             self.cursor.execute(
                 "SELECT id FROM areas_interesse WHERE LOWER(nome) = %s",
                 (nome_padrao,)
@@ -298,7 +288,6 @@ class DataService:
                 )
                 area_id = self.cursor.lastrowid
 
-            # Insere o relacionamento
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_interesse
                     (profissional_id, area_interesse_id, nivel_interesse)
@@ -313,7 +302,7 @@ class DataService:
             ))
 
         except Exception as e:
-            print(f"Erro ao salvar área de interesse '{nome}': {e}")
+            print(f"Erro ao salvar área de interesse: {e}")
             raise
 
     def _salvar_area_atuacao(self, profissional_id, area):
