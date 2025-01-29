@@ -1,230 +1,28 @@
 import openai
 import json
 import re
-from src.config.config_settings import OPENAI_KEY
-
-
+from datetime import datetime
+from src.config.config_settings import OPENAI_KEY, NIVEIS_IDIOMA, TIPOS_CONTRATO, DISPONIBILIDADE, SQL_SCHEMA
+from src.utils.classes_profissao import profissoes_classes
 class GPTService:
     def __init__(self):
         openai.api_key = OPENAI_KEY
         self.system_message = {
             "role": "system",
-            "content": """
-            Você é um analisador de currículos especializado na extração e estruturação de dados. 
-            **Extraia e preencha corretamente todos os campos especificados**, atribuindo os dados às colunas correspondentes no banco de dados.
-
-            **IMPORTANTE SOBRE ÁREAS:**
-            - Ao identificar áreas de interesse e atuação, SEMPRE consulte a lista de áreas existentes fornecida
-            - Use preferencialmente áreas já cadastradas para manter consistência
-            - Se encontrar uma área nova, ela deve ser MUITO similar às existentes
-            - Separe claramente áreas de interesse (aspirações) das áreas de atuação (experiência real)
-
-            **REGRAS GERAIS:**
-            - Caso alguma informação relevante não tenha uma coluna correspondente, **salve-a na coluna `campos_dinamicos`** com uma chave descritiva
-            - Sempre retorne **todas** as colunas esperadas, mesmo que vazias (use "" ou null)
-            - Converta **todos os valores textuais para lowercase**
-            - Utilize **sinônimos e variações** para garantir a extração correta
-            - **NÃO OMITA** campos e valores que possam ser derivados do conteúdo analisado
-            - NÃO INCLUA ```json NA RESPOSTA
-            """
-        }
-
-    def _validate_and_fix_json(self, content):
-        """Valida e corrige problemas comuns no JSON"""
-        try:
-            # Remove caracteres especiais e quebras de linha indesejadas
-            content = re.sub(r'[\n\r\t]', ' ', content)
-
-            # Tenta encontrar o JSON válido dentro do texto
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if not json_match:
-                return self._get_empty_structure()
-
-            json_str = json_match.group()
-
-            # Tenta fazer o parse do JSON
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError:
-                # Se falhar, tenta limpar e corrigir o JSON
-                json_str = re.sub(r',\s*}', '}', json_str)  # Remove vírgulas extras
-                json_str = re.sub(r',\s*]', ']', json_str)  # Remove vírgulas extras em arrays
-                json_str = re.sub(r'"}[\s\n]*,[\s\n]*"', '", "', json_str)  # Corrige formatação
-                return json.loads(json_str)
-
-        except Exception as e:
-            print(f"Erro ao processar JSON: {e}")
-            print("Content recebido:", content)
-            return self._get_empty_structure()
-
-    def analisar_curriculo(self, texto):
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[self.system_message, self.user_message(texto)],
-                temperature=0.1
-            )
-            content = response.choices[0].message.content.strip()
-
-            # Valida e corrige o JSON antes de retornar
-            dados = self._validate_and_fix_json(content)
-
-            # Garante que todos os campos obrigatórios existem
-            dados = self._ensure_required_fields(dados)
-
-            return dados
-
-        except Exception as e:
-            print(f"Erro: {e}")
-            print("Resposta:", content if 'content' in locals() else 'N/A')
-            return self._get_empty_structure()
-
-    def _ensure_required_fields(self, dados):
-        """Garante que todos os campos obrigatórios existem"""
-        template = self._get_empty_structure()
-
-        if not isinstance(dados, dict):
-            return template
-
-
-        def merge_dicts(template, data):
-            if not isinstance(data, dict):
-                return data
-            result = template.copy()[0]
-            for key, value in data.items():
-                if key in template and isinstance(template[key], dict):
-                    result[key] = merge_dicts(template[key], value)
-                else:
-                    result[key] = value
-            return result
-
-        return merge_dicts(template, dados)
-
-
-    def user_message(self, texto, areas_existentes=None):
-        areas_contexto = ""
-        if areas_existentes:
-            areas_contexto = f"""
-                **AREAS JA CADASTRADAS NO SISTEMA:**
-                - Areas de Interesse: {[area['nome'] for area in areas_existentes.get('interesse', [])]}
-                - Areas de Atuacao: {[area['nome'] for area in areas_existentes.get('atuacao', [])]}
-
-                **IMPORTANTE:** Utilize preferencialmente estas areas existentes!
-                """
-
-        return {
-            "role": "user",
-            "content": f"""
-                **Schema do banco de dados:**
-                ```
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                nome VARCHAR(255),
-                email VARCHAR(255),
-                genero VARCHAR(50),
-                idade INT,
-                instituto_formacao VARCHAR(255),
-                curso VARCHAR(255),
-                periodo VARCHAR(50),
-                tempo_experiencia FLOAT,
-                ultima_experiencia TEXT,
-                todas_experiencias TEXT,
-                habilidades TEXT,
-                linkedin VARCHAR(255),
-                github VARCHAR(255),
-                telefone VARCHAR(50),
-                data_criacao DATETIME,
-                pdf_conteudo LONGTEXT,
-                observacoes_ia TEXT,
-                campos_dinamicos TEXT,
-                areas_interesse TEXT,
-                areas_atuacao TEXT
-                ```
-
-                **Resumo do banco de dados (db_summary):**
-                - **id:** identificador unico autoincremental
-                - **nome:** nome completo do candidato em lowercase (ex: "joao silva")
-                - **email:** email de contato do candidato (ex: "joao@email.com")
-                - **genero:** masculino/feminino/nao identificado, baseado no nome se nao especificado (ex: "masculino")
-                - **idade:** idade numerica do candidato (ex: 25)
-                - **instituto_formacao:** nome da instituicao de ensino em lowercase (ex: "ufmg")
-                - **curso:** nome do curso em lowercase (ex: "engenharia de computacao")
-                - **periodo:** periodo atual ou status do curso em lowercase (ex: "5o periodo" ou "concluido")
-                - **tempo_experiencia:** anos de experiencia profissional como decimal (ex: 2.5)
-                - **ultima_experiencia:** descricao da experiencia mais recente em lowercase
-                - **todas_experiencias:** array JSON com historico de experiencias em lowercase
-                - **habilidades:** array JSON com lista de habilidades tecnicas em lowercase
-                - **linkedin:** URL completa do perfil do LinkedIn
-                - **github:** URL completa do perfil do GitHub
-                - **telefone:** numero de telefone com DDD e pais (ex: "+5531999999999")
-                - **data_criacao:** data e hora do cadastro (automatico)
-                - **pdf_conteudo:** conteudo completo do PDF em lowercase
-                - **observacoes_ia:** array JSON com observacoes relevantes em lowercase
-                - **campos_dinamicos:** objeto JSON com informacoes extras em lowercase
-                - **areas_interesse:** array JSON com areas de interesse profissional em lowercase
-                - **areas_atuacao:** array JSON com areas de experiencia comprovada em lowercase
-
-                {areas_contexto}
-
-                **Instrucoes para analise do curriculo:**
-                1. Extraia todas as informacoes do curriculo abaixo e retorne APENAS JSON com a estrutura exata:
-                ```json
-                {{
-                    "dados_basicos": {{
-                        "nome": "string",
-                        "email": "string",
-                        "genero": "string",
-                        "idade": number
-                    }},
-                    "formacao": {{
-                        "instituto_formacao": "string",
-                        "curso": "string",
-                        "periodo": "string"
-                    }},
-                    "experiencia": {{
-                        "tempo_experiencia": number,
-                        "areas_interesse": ["string"],
-                        "areas_atuacao": ["string"],
-                        "ultima_experiencia": "string",
-                        "todas_experiencias": ["string"]
-                    }},
-                    "habilidades": ["string"],
-                    "contato": {{
-                        "linkedin": "string",
-                        "github": "string",
-                        "telefone": "string"
-                    }},
-                    "observacoes_ia": ["string"],
-                    "campos_dinamicos": {{"chave": "valor"}}
-                }}
-                ```
-
-                2. **IMPORTANTE - Use EXATAMENTE estas chaves:**
-                   - instituto_formacao (nao use "instituto")
-                   - tempo_experiencia (nao use "tempo_total")
-                   - ultima_experiencia (nao use "ultima_exp")
-                   - todas_experiencias (nao use "todas_exp")
-                   - observacoes_ia (nao use "observacoes")
-                   - areas_interesse e areas_atuacao como arrays
-
-                3. **Nao deixe nenhum campo em branco no JSON.** Use "" ou [] para campos vazios.
-
-                4. **Todo texto deve ser convertido para lowercase** para garantir consistencia.
-
-                5. Se uma informacao relevante for encontrada e nao houver uma coluna correspondente, 
-                   salve-a dentro de `campos_dinamicos` no formato chave-valor.
-
-                **Curriculo para analise:** 
-                {texto}
-                """
+            "content": "Você é um analisador avançado de currículos especializado em extrair informações estruturadas."
         }
 
     def analisar_curriculo(self, texto):
         try:
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[self.system_message, self.user_message(texto)],
+                messages=[
+                    self.system_message,
+                    self._criar_mensagem_usuario(texto)
+                ],
                 temperature=0.1
             )
+
             content = response.choices[0].message.content.strip()
 
 
@@ -232,98 +30,409 @@ class GPTService:
 
 
             try:
-                return json.loads(content)
+                dados = json.loads(content)
             except json.JSONDecodeError:
+                print("Erro ao fazer parse do JSON")
+                return self._get_estrutura_vazia()
 
-                json_match = re.search(r"\{[\s\S]*\}", content)
-                if (json_match):
-                    return json.loads(json_match.group())
-                raise
+
+            dados_validados = self._validar_dados(dados)
+
+
+            dados_validados = self._converter_strings_para_lowercase(dados_validados)
+
+            return dados_validados
 
         except Exception as e:
-            print(f"Erro: {e}\nResposta: {content if 'content' in locals() else 'N/A'}")
-            return self._get_empty_structure()
+            print(f"Erro na análise do currículo: {e}")
+            return self._get_estrutura_vazia()
 
-    def gerar_query_sql(self, prompt, schema):
+    def _converter_strings_para_lowercase(self, obj):
+
+        if isinstance(obj, str):
+            return obj.lower()
+        elif isinstance(obj, dict):
+            return {key: self._converter_strings_para_lowercase(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._converter_strings_para_lowercase(item) for item in obj]
+        return obj
+
+    def _validar_dados(self, dados):
+
+        estrutura_padrao = self._get_estrutura_vazia()
+        dados_validados = {}
+
         try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Gere queries MySQL válidas e otimizadas para MySQL."},
-                    {"role": "user", "content": f"""
-                    Schema do banco de dados:
-                    {schema}
 
-                    **Resumo do banco de dados (db_summary):**
-                    - **Tabela:** [nome_da_tabela]
-                    - **coluna1 (tipo)**: [exemplo de valor], [exemplo de valor]
-                    - **coluna2 (tipo)**: [exemplo de valor], [exemplo de valor]
-                    - **coluna3 (tipo)**: [exemplo de valor], [exemplo de valor]
-
-                    **Instruções:**
-                    1. Gere uma query MySQL válida e otimizada para a seguinte necessidade:
-                    **{prompt}**
-                    2. Sempre retorne **apenas** a query MySQL, sem explicações adicionais.
-                    3. Nunca utilize ```sql```, apenas o comando puro.
-                    4. Para colunas do tipo `string`, sempre trate os valores em **lowercase**, garantindo consistência nos resultados.
-                    5. Utilize sinônimos ou variações para buscas em colunas `string`, ampliando a precisão da consulta.
-                    6. Evite consultas complexas desnecessárias e utilize índices quando possível para melhorar a performance.
-
-                    Gere a consulta conforme as diretrizes acima.
-                    """}
-                ]
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Query Error: {e}")
-            return None
-
-    def processar_resposta(self, prompt, dados):
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Analise dados e responda perguntas."},
-                    {"role": "user", "content": f"""
-                    Dados disponíveis:
-                    {json.dumps(dados, indent=2)}
-
-                    Pergunta:
-                    {prompt}
-                    """}
-                ]
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Response Error: {e}")
-            return "Erro ao processar resposta."
-
-
-        def _get_empty_structure(self):
-            return {
-                "dados_basicos": {
-                    "nome": "",
-                    "email": "",
-                    "genero": "",
-                    "idade": None
-                },
-                "formacao": {
-                    "instituto_formacao": "",
-                    "periodo": ""
-                },
-                "experiencia": {
-                    "tempo_experiencia": 0,
-                    "areas_interesse": [],
-                    "areas_atuacao": [],
-                    "ultima_experiencia": "",
-                    "todas_experiencias": []
-                },
-                "habilidades": [],
-                "contato": {
-                    "linkedin": "",
-                    "github": "",
-                    "telefone": ""
-                },
-                "observacoes_ia": [],
-                "campos_dinamicos": {}
+            profissional = {
+                'nome': str(dados.get('nome', '')),
+                'email': str(dados.get('email', '')),
+                'telefone': str(dados.get('telefone', '')),
+                'endereco': str(dados.get('endereco', '')),
+                'portfolio_url': str(dados.get('portfolio_url', '')),
+                'linkedin_url': str(dados.get('linkedin_url', '')),
+                'github_url': str(dados.get('github_url', '')),
+                'genero': self._inferir_genero(str(dados.get('nome', ''))),
+                'idade': dados.get('idade') if isinstance(dados.get('idade'), (int, float)) else None,
+                'pretensao_salarial': dados.get('pretensao_salarial') if isinstance(dados.get('pretensao_salarial'),
+                                                                                    (int, float)) else None,
+                'disponibilidade': dados.get('disponibilidade', 'imediata'),
+                'tipo_contrato': dados.get('tipo_contrato', 'clt'),
+                'observacoes_ia': dados.get('observacoes_ia', [])[:3] or ['perfil em análise', 'necessita validação',
+                                                                          'requer mais detalhes'],
+                'habilidades': dados.get('habilidades', []) if isinstance(dados.get('habilidades'), list) else [],
+                'campos_dinamicos': dados.get('campos_dinamicos', {}) or {'observacoes': 'dados em análise'}
             }
+
+
+            if profissional['disponibilidade'] not in DISPONIBILIDADE:
+                profissional['disponibilidade'] = 'imediata'
+            if profissional['tipo_contrato'] not in TIPOS_CONTRATO:
+                profissional['tipo_contrato'] = 'clt'
+
+            # Faculdade
+            faculdade = {
+                'nome': str(dados.get('faculdade', {}).get('nome', '')),
+                'cidade': str(dados.get('faculdade', {}).get('cidade', '')),
+                'estado': str(dados.get('faculdade', {}).get('estado', '')),
+                'pais': str(dados.get('faculdade', {}).get('pais', 'brasil')),
+                'tipo': str(dados.get('faculdade', {}).get('tipo', ''))
+            }
+
+
+            profissao = {
+                'nome': str(dados.get('profissao', {}).get('nome', 'profissional')),
+                'descricao': str(dados.get('profissao', {}).get('descricao', ''))
+            }
+
+            # Arrays
+            idiomas = dados.get('idiomas', [])
+            areas_interesse = dados.get('areas_interesse', [])
+            areas_atuacao = dados.get('areas_atuacao', [])
+
+            dados_validados = {
+                'profissional': profissional,
+                'faculdade': faculdade,
+                'profissao': profissao,
+                'idiomas': idiomas,
+                'areas_interesse': areas_interesse,
+                'areas_atuacao': areas_atuacao
+            }
+
+            return dados_validados
+
+        except Exception as e:
+            print(f"Erro na validação: {e}")
+            return estrutura_padrao
+
+    def _inferir_genero(self, nome):
+
+        try:
+
+            if not nome or not isinstance(nome, str):
+                return 'não identificado'
+
+
+            import unicodedata
+            primeiro_nome = unicodedata.normalize('NFKD', nome.split()[0]) \
+                .encode('ASCII', 'ignore') \
+                .decode('ASCII') \
+                .lower()
+
+
+            nomes_masculinos = {
+
+                'joao', 'jose', 'antonio', 'francisco', 'carlos', 'paulo', 'pedro', 'lucas',
+                'luiz', 'luis', 'marcos', 'gabriel', 'rafael', 'daniel', 'marcelo', 'bruno',
+                'eduardo', 'felipe', 'rodrigo', 'manoel', 'manuel', 'jorge', 'andre', 'raul',
+                'victor', 'vitor', 'sergio', 'sergio', 'claudio', 'cesar', 'ricardo',
+                'mario', 'marcio', 'marcos', 'marcelo', 'miguel', 'michael', 'william',
+                'joao paulo', 'jose carlos', 'luiz carlos', 'jean carlos', 'joao pedro',
+                'joao victor', 'joao lucas', 'joao marcos', 'joao gabriel', 'joao miguel',
+                'enzo', 'valentim', 'theo', 'lorenzo', 'miguel', 'arthur', 'bernardo',
+                'heitor', 'davi', 'david', 'theo', 'pedro henrique', 'pietro', 'benjamin',
+                'gustavo', 'henrique', 'lucas', 'luis', 'luiz', 'marcos', 'gabriel', 'rafael',
+                'john', 'michael', 'william', 'james', 'robert', 'david', 'richard',
+
+                *[nome for nome in [primeiro_nome] if nome.endswith(('son', 'ton', 'ilton', 'ilson', 'anderson'))]
+            }
+
+            # Dicionário de nomes femininos comuns no Brasil
+            nomes_femininos = {
+                'maria', 'ana', 'juliana', 'adriana', 'julia', 'beatriz', 'jessica',
+                'fernanda', 'patricia', 'paula', 'alice', 'bruna', 'amanda', 'rosa',
+                'carolina', 'mariana', 'vanessa', 'camila', 'daniela', 'isabela', 'isabel',
+                'larissa', 'leticia', 'sandra', 'priscila', 'carla', 'monica', 'angela',
+                'maria jose', 'ana maria', 'ana paula', 'maria helena', 'maria eduarda',
+                'sophia', 'helena', 'valentina', 'cecilia', 'clara', 'iris', 'aurora',
+                'bella', 'maya', 'maia', 'isis', 'lara', 'agnes', 'louise', 'luiza',
+                'jennifer', 'elizabeth', 'sarah', 'michelle', 'emma', 'olivia', 'lisa',
+
+                *[nome for nome in [primeiro_nome] if nome.endswith(('ana', 'ela', 'ila', 'ina'))]
+            }
+
+
+            if primeiro_nome in nomes_masculinos:
+                return 'masculino'
+            elif primeiro_nome in nomes_femininos:
+                return 'feminino'
+            elif primeiro_nome.endswith(('son', 'ton', 'ilton', 'ilson')):
+                return 'masculino'
+            elif primeiro_nome.endswith(('a', 'ana', 'ela', 'ila', 'ina')):
+                if primeiro_nome not in ['joshua', 'luca', 'nokia', 'costa', 'moura']:
+                    return 'feminino'
+
+
+            return 'não identificado'
+
+        except Exception as e:
+            print(f"Erro ao inferir gênero do nome '{nome}': {e}")
+            return 'não identificado'
+    def _criar_mensagem_usuario(self, texto):
+        return {
+            "role": "user",
+            "content": f"""
+            Analise o currículo e retorne um JSON EXATAMENTE com esta estrutura:
+
+            {{
+                "nome": "string",
+                "email": "string",
+                "telefone": "string",
+                "endereco": "string",
+                "portfolio_url": "string",
+                "linkedin_url": "string",
+                "github_url": "string",
+                "genero": "string",
+                "idade": number,
+                "pretensao_salarial": number,
+                "disponibilidade": "string",
+                "tipo_contrato": "string",
+
+                "profissao": {{
+                    "nome": "string",
+                    "descricao": "string"
+                }},
+
+                "faculdade": {{
+                    "nome": "string",
+                    "cidade": "string",
+                    "estado": "string",
+                    "pais": "string",
+                    "tipo": "string"
+                }},
+
+                "idiomas": [
+                    {{
+                        "nome": "string",
+                        "nivel": "string",
+                        "certificacao": "string"
+                    }}
+                ],
+
+                "areas_interesse": [
+                    {{
+                        "nome": "string",
+                        "nivel_interesse": number
+                    }}
+                ],
+
+                "areas_atuacao": [
+                    {{
+                        "nome": "string",
+                        "anos_experiencia": number,
+                        "ultimo_cargo": "string",
+                        "ultima_empresa": "string",
+                        "descricao_atividades": "string"
+                    }}
+                ],
+
+                "observacoes_ia": ["string"],
+                "campos_dinamicos": {{}}
+            }}
+
+            REGRAS IMPORTANTES:
+
+            1. GÊNERO (obrigatório)
+            - Masculino: João, José, Carlos, Antonio, Francisco
+            - Feminino: Maria, Ana, Paula, Julia, Sandra
+            - Default: "não identificado"
+
+            2. DISPONIBILIDADE (valores válidos)
+            {DISPONIBILIDADE}
+
+            3. TIPO_CONTRATO (valores válidos)
+            {TIPOS_CONTRATO}
+
+            4. NÍVEIS DE IDIOMA (valores válidos)
+            {NIVEIS_IDIOMA}
+
+            5. NÍVEL DE INTERESSE
+            - 1: muito baixo
+            - 2: baixo
+            - 3: médio
+            - 4: alto
+            - 5: muito alto
+
+            6. REGRAS GERAIS
+            - Todo texto em lowercase
+            - Campos vazios: "" para texto, null para números
+            - Mínimo 3 observações da IA
+            - Campos dinâmicos para informações extras do curriculo
+
+            7. OBSERVACÕES IMPORTANTES
+            - Se houver erro, retorne a estrutura vazia
+           
+            **8.SUPER IMPORTANTE PROFISSOES SIMILARES:
+            -sempre salvar as profissoes segundo para nao repedir {profissoes_classes}
+            -sempre salvar as areas de interesse e atuacao para nao repedir {profissoes_classes}
+            -sempre salvar as areas de atuação para nao repedir {profissoes_classes}
+            
+            9.Sigla estados brasileiros:
+            -Sempre coloque as siglas quando houver estado AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, 
+            PR, PE, PI, RJ, RN, 
+            RS, 
+            RO, RR, SC, SP, SE, TO
+           
+            **10. SUPER IMPORTANTE HABIILIDADES:
+            Extrair todas as habilidades técnicas e competências mencionadas
+            - Incluir ferramentas, tecnologias, metodologias
+            - Normalizar nomes (ex: "Ms Excel" -> "excel")
+            - Remover duplicatas
+            
+            Currículo para análise:
+            {texto}
+            """
+        }
+
+    def _get_estrutura_vazia(self):
+
+        return {
+            'profissional': {
+                'nome': '',
+                'email': '',
+                'telefone': '',
+                'endereco': '',
+                'portfolio_url': '',
+                'linkedin_url': '',
+                'github_url': '',
+                'genero': 'não identificado',
+                'idade': None,
+                'pretensao_salarial': None,
+                'disponibilidade': 'imediata',
+                'tipo_contrato': 'clt',
+                'observacoes_ia': ['dados não processados', 'necessita análise', 'requer validação'],
+                'campos_dinamicos': {},
+                'habilidades': [],
+            },
+            'faculdade': {
+                'nome': '',
+                'cidade': '',
+                'estado': 'sempre coloque a sigla do estado ex: SP, RJ, MG ',
+                'pais': 'brasil',
+                'tipo': ''
+            },
+            'profissao': {
+                'nome': 'profissional',
+                'descricao': ''
+            },
+            'idiomas': [],
+            'areas_interesse': [],
+            'areas_atuacao': []
+        }
+
+    def gerar_query_sql(self, prompt, schema=None):
+        try:
+            lista_profissoes = []
+            # Cria uma lista de todas as profissões e similares para busca
+            for profissao, similares in profissoes_classes.items():
+                lista_profissoes.append(profissao)
+                lista_profissoes.extend(similares)
+
+            profissoes_sql = "'" + "','".join(lista_profissoes) + "'"
+
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""Você é um gerador de queries SQL simples e direto.
+                        RETORNE APENAS A QUERY, sem explicações ou marcações.
+
+                        Estrutura base da query que você DEVE seguir:
+                        SELECT DISTINCT
+                            p.nome,
+                            p.email,
+                            prof.nome as profissao,
+                            paa.anos_experiencia,
+                            paa.ultimo_cargo,
+                            paa.ultima_empresa,
+                            aa.nome as area_atuacao,
+                            p.habilidades
+                        FROM profissionais p
+                        LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+                        LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
+                        LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
+                        WHERE ...
+
+                        Profissões válidas: {profissoes_sql}
+                        """
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""
+                        Crie uma query SQL para: {prompt}
+
+                        REGRAS OBRIGATÓRIAS:
+                        1. Use EXATAMENTE a estrutura base fornecida
+                        2. Adicione apenas a condição WHERE necessária
+                        3. Use sempre LOWER() nas comparações de texto
+                        4. Procure sempre em:
+                           - prof.nome
+                           - paa.ultimo_cargo
+                           - paa.descricao_atividades
+                           - aa.nome
+                           - JSON_CONTAINS(p.habilidades)
+                        5. NÃO use ```sql``` ou qualquer outra marcação
+                        """
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=1000
+            )
+
+            query = response.choices[0].message.content.strip()
+            query = query.replace('```sql', '').replace('```', '').strip()
+
+            # Validações básicas
+            query_upper = query.upper()
+            if not query_upper.startswith('SELECT DISTINCT'):
+                raise Exception("Query deve começar com SELECT DISTINCT")
+
+            if 'FROM PROFISSIONAIS P' not in query_upper:
+                raise Exception("Query deve usar a estrutura base fornecida")
+
+            if 'WHERE' not in query_upper:
+                raise Exception("Query deve conter cláusula WHERE")
+
+            return query
+
+        except Exception as e:
+            print(f"Erro ao gerar query: {e}")
+            print("Prompt original:", prompt)
+            # Retorna uma query padrão de segurança
+            return """
+            SELECT DISTINCT
+                p.nome,
+                p.email,
+                prof.nome as profissao,
+                paa.anos_experiencia,
+                paa.ultimo_cargo,
+                paa.ultima_empresa,
+                aa.nome as area_atuacao,
+                p.habilidades
+            FROM profissionais p
+            LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+            LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
+            LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
+            WHERE LOWER(prof.nome) LIKE LOWER(%s)
+            """
