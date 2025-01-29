@@ -1,41 +1,12 @@
 import json
 from datetime import datetime
 from src.database.database_connection import DatabaseConnection
-
+from src.utils.classes_profissao import profissoes_classes
 
 class DataService:
     def __init__(self):
         self.conn = None
         self.cursor = None
-        self.estados = {
-            'acre': 'AC',
-            'alagoas': 'AL',
-            'amapá': 'AP',
-            'amazonas': 'AM',
-            'bahia': 'BA',
-            'ceará': 'CE',
-            'distrito federal': 'DF',
-            'espírito santo': 'ES',
-            'goiás': 'GO',
-            'maranhão': 'MA',
-            'mato grosso': 'MT',
-            'mato grosso do sul': 'MS',
-            'minas gerais': 'MG',
-            'pará': 'PA',
-            'paraíba': 'PB',
-            'paraná': 'PR',
-            'pernambuco': 'PE',
-            'piauí': 'PI',
-            'rio de janeiro': 'RJ',
-            'rio grande do norte': 'RN',
-            'rio grande do sul': 'RS',
-            'rondônia': 'RO',
-            'roraima': 'RR',
-            'santa catarina': 'SC',
-            'são paulo': 'SP',
-            'sergipe': 'SE',
-            'tocantins': 'TO'
-        }
 
     def _get_connection(self):
         self.conn, self.cursor = DatabaseConnection.get_connection()
@@ -201,26 +172,40 @@ class DataService:
             self._close_connection()
 
     def _get_or_create_profissao(self, nome):
-        """Busca ou cria uma profissão"""
+        """Busca ou cria uma profissão considerando similaridade"""
         nome = nome.lower().strip()
 
-        # Busca profissão existente
+        # Dicionário de profissões similares
+        profissoes_similares = profissoes_classes
+
+        # Verifica se o nome está nas chaves do dicionário de similaridade
+        if nome in profissoes_similares:
+            nome_padrao = nome
+        else:
+            # Busca o nome padrão para o qual o nome fornecido é similar
+            for profissao, similares in profissoes_similares.items():
+                if nome in similares:
+                    nome_padrao = profissao
+                    break
+            else:
+                nome_padrao = nome
+
+        # Busca profissão existente pelo nome padrão
         self.cursor.execute(
             "SELECT id FROM profissoes WHERE LOWER(nome) = %s",
-            (nome,)
+            (nome_padrao,)
         )
         result = self.cursor.fetchone()
 
         if result:
             return result['id']
 
-        # Cria nova profissão
+        # Cria nova profissão com o nome padrão
         self.cursor.execute(
             "INSERT INTO profissoes (nome) VALUES (%s)",
-            (nome,)
+            (nome_padrao,)
         )
         return self.cursor.lastrowid
-
     def _get_or_create_faculdade(self, nome, cidade='', estado=''):
         """Busca ou cria uma faculdade"""
         nome = nome.lower().strip()
@@ -311,25 +296,37 @@ class DataService:
         except Exception as e:
             print(f"Erro ao salvar idioma: {e}")
             raise
+
     def _salvar_area_interesse(self, profissional_id, area):
         """
-        Salva uma área de interesse para o profissional, evitando duplicatas
+        Salva uma área de interesse para o profissional, considerando similaridade
         """
         try:
-            # Busca área existente
+            nome = area['nome'].lower().strip()
+
+            # Dicionário de áreas de interesse similares
+            areas_interesse_similares = profissoes_classes
+
+            nome_padrao = nome
+            for area_interesse, similares in areas_interesse_similares.items():
+                if nome in similares:
+                    nome_padrao = area_interesse
+                    break
+
+            # Busca área existente pelo nome padrão
             self.cursor.execute(
                 "SELECT id FROM areas_interesse WHERE LOWER(nome) = %s",
-                (area['nome'].lower(),)
+                (nome_padrao,)
             )
             resultado = self.cursor.fetchone()
 
             if resultado:
                 area_id = resultado['id']
             else:
-                # Cria nova área
+                # Cria nova área com o nome padrão
                 self.cursor.execute(
                     "INSERT INTO areas_interesse (nome) VALUES (%s)",
-                    (area['nome'].lower(),)
+                    (nome_padrao,)
                 )
                 area_id = self.cursor.lastrowid
 
@@ -353,38 +350,48 @@ class DataService:
 
     def _salvar_area_atuacao(self, profissional_id, area):
         """
-        Salva uma área de atuação para o profissional, evitando duplicatas
+        Salva uma área de atuação para o profissional, considerando similaridade
         """
         try:
-            # Busca área existente
+            nome = area['nome'].lower().strip()
+
+            # Dicionário de áreas de atuação similares
+            areas_atuacao_similares = profissoes_classes
+            nome_padrao = nome
+            for area_padrao, similares in areas_atuacao_similares.items():
+                if nome in similares:
+                    nome_padrao = area_padrao
+                    break
+
+            # Busca área existente pelo nome padrão
             self.cursor.execute(
                 "SELECT id FROM areas_atuacao WHERE LOWER(nome) = %s",
-                (area['nome'].lower(),)
+                (nome_padrao,)
             )
             resultado = self.cursor.fetchone()
 
             if resultado:
                 area_id = resultado['id']
             else:
-                # Cria nova área
+                # Cria nova área com o nome padrão
                 self.cursor.execute(
                     "INSERT INTO areas_atuacao (nome) VALUES (%s)",
-                    (area['nome'].lower(),)
+                    (nome_padrao,)
                 )
                 area_id = self.cursor.lastrowid
 
             # Cria ou atualiza o relacionamento
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_atuacao
-                    (profissional_id, area_atuacao_id, anos_experiencia, 
+                    (profissional_id, area_atuacao_id, anos_experiencia,
                      ultimo_cargo, ultima_empresa, descricao_atividades)
-                VALUES
+                VALUES 
                     (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     anos_experiencia = VALUES(anos_experiencia),
                     ultimo_cargo = VALUES(ultimo_cargo),
                     ultima_empresa = VALUES(ultima_empresa),
-                    descricao_atividades = VALUES(descricao_atividades)
+                    descricao_atividades = VALUES(descricao_atividades)  
             """, (
                 profissional_id,
                 area_id,
@@ -397,7 +404,6 @@ class DataService:
         except Exception as e:
             print(f"Erro ao salvar área de atuação: {e}")
             raise
-
     def buscar_profissionais(self, filtros=None):
         """
         Busca profissionais com filtros opcionais
