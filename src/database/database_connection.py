@@ -6,6 +6,7 @@ from src.config.config_settings import DB_CONFIG, SQL_SCHEMA
 class DatabaseConnection:
     @staticmethod
     def get_connection():
+        global cursor
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)

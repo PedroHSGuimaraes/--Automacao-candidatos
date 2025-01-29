@@ -5,17 +5,19 @@ profissoes_classes = {
             'desenvolvedor de software', 'desenvolvedora de software',
             'engenheiro de software', 'engenheira de software',
             'programador de sistemas', 'programadora de sistemas',
-            'desenvolvedor web', 'desenvolvedora web'
+            'desenvolvedor web', 'desenvolvedora web','frontend developer' 
+            'programaçao web', 'programador web', 'programadora web',
+
         ],
         'desenvolvedor_back_end': [
             'back-end', 'backend', 'desenvolvedor back-end', 'desenvolvedora back-end',
             'programador back-end', 'programadora back-end',
-            'engenheiro back-end', 'engenheira back-end'
+            'engenheiro back-end', 'engenheira back-end','backend developer'
         ],
         'desenvolvedor_front_end': [
             'front-end', 'frontend', 'desenvolvedor front-end', 'desenvolvedora front-end',
             'programador front-end', 'programadora front-end',
-            'engenheiro front-end', 'engenheira front-end'
+            'engenheiro front-end', 'engenheira front-end','frontend developer'
         ],
         'desenvolvedor_cloud': [
             'cloud', 'cloud computing', 'desenvolvedor cloud', 'desenvolvedora cloud',
@@ -86,10 +88,10 @@ profissoes_classes = {
         'computacao_nuvem': [
             'cloud', 'cloud computing', 'aws', 'azure'
         ],
-        'mobile': [
+        'desenvolvimento_mobile': [
             'desenvolvimento mobile', 'android', 'ios', 'aplicativos'
         ],
-        'jogos': [
+        'desenvolvimento_de_jogos': [
             'desenvolvimento de jogos', 'game dev', 'unity', 'unreal'
         ],
         'redes': [
@@ -146,6 +148,26 @@ profissoes_classes = {
         ],
         'data_scientist': [
             'cientista de dados', 'data scientist'
-        ]
+        ],
+        'inteligencia_artificial': [
+            'especialista em inteligência artificial', 'especialista em ia', 'especialista em machine learning','inteligência artificial'
+
+        ],
+       'tecnologia_informacao': [
+            'tecnologia de informação', 'tecnologia da informação'
+            'ti', 'informática', 'informatica', 'tecnologia', 'tecnologias', 'tecnologias da informação', 'tecnologias de informação'
+],
+        'seguranca_informacao': [
+            'segurança', 'cibersegurança', 'infosec'
+        ],
+    'suporte_ao_cliente': [
+            'suporte ao cliente', 'atendimento ao cliente', 'customer support'
+        ],
+        'tecnico_de_informatica': [
+            'técnico de informática', 'técnica de informática', 'técnico de ti', 'técnica de ti'
+        ],
+        'tecnico_de_manutencao': [
+            'técnico de manutenção', 'técnica de manutenção', 'técnico de suporte', 'técnica de suporte'
+        ],
 
 }

@@ -79,7 +79,8 @@ def render_viewer():
                     prof.nome as profissao,
                     g.nome as genero,
                     f.nome as faculdade,
-                    i.nome as idioma_principal
+                    i.nome as idioma_principal,
+                    p.habilidades
                 FROM profissionais p
                 LEFT JOIN profissoes prof ON p.profissao_id = prof.id
                 LEFT JOIN generos g ON p.genero_id = g.id

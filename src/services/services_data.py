@@ -3,6 +3,7 @@ from datetime import datetime
 from src.database.database_connection import DatabaseConnection
 from src.utils.classes_profissao import profissoes_classes
 
+
 class DataService:
     def __init__(self):
         self.conn = None
@@ -15,40 +16,25 @@ class DataService:
         DatabaseConnection.close_connection(self.conn, self.cursor)
 
     def _converter_estado_para_sigla(self, estado):
-        """
-        Converte o nome do estado para sua sigla
-        """
         if not estado:
             return ''
-
         estado = estado.lower().strip()
-
-        # Se já é uma sigla válida
         if estado.upper() in self.estados.values():
             return estado.upper()
-
-        # Se é um nome de estado
         return self.estados.get(estado, '')
 
     def _get_or_create_genero(self, genero_data):
-        """
-        Busca ou cria um gênero no banco de dados
-        """
         try:
-            # Trata o caso em que genero_data é uma string
             if isinstance(genero_data, str):
                 nome = genero_data.lower().strip()
                 descricao = ""
             else:
-                # Trata o caso em que genero_data é um dicionário
                 nome = genero_data.get('nome', 'não identificado').lower().strip()
                 descricao = genero_data.get('descricao', '').lower().strip()
 
-            # Validar se é um dos valores permitidos
             if nome not in ['masculino', 'feminino', 'não identificado']:
                 nome = 'não identificado'
 
-            # Buscar gênero existente
             self.cursor.execute(
                 "SELECT id FROM generos WHERE LOWER(nome) = %s",
                 (nome,)
@@ -57,7 +43,6 @@ class DataService:
 
             if resultado:
                 genero_id = resultado['id']
-                # Atualiza descrição se fornecida
                 if descricao:
                     self.cursor.execute(
                         "UPDATE generos SET descricao = %s WHERE id = %s",
@@ -65,7 +50,6 @@ class DataService:
                     )
                 return genero_id
 
-            # Se não existe, cria novo
             self.cursor.execute(
                 "INSERT INTO generos (nome, descricao) VALUES (%s, %s)",
                 (nome, descricao)
@@ -74,56 +58,42 @@ class DataService:
 
         except Exception as e:
             print(f"Erro ao buscar/criar gênero: {e}")
-            # Retorna ID do gênero 'não identificado'
             self.cursor.execute(
                 "SELECT id FROM generos WHERE nome = 'não identificado'"
             )
             return self.cursor.fetchone()['id']
 
     def salvar_profissional(self, dados, texto_pdf):
-        """
-        Salva um profissional e seus relacionamentos no banco de dados
-        """
         try:
             self._get_connection()
-
-            # 1. Salvar ou obter profissão
             profissao_id = self._get_or_create_profissao(dados['profissao']['nome'])
-
-            # 2. Salvar ou obter faculdade
             faculdade_id = self._get_or_create_faculdade(
                 dados['faculdade']['nome'],
                 dados['faculdade']['cidade'],
                 dados['faculdade']['estado']
             )
-
-            # 3. Salvar ou obter gênero
             genero_id = self._get_or_create_genero(dados['profissional']['genero'])
 
-            # 4. Identificar idioma principal
             idioma_principal_id = None
             nivel_idioma_principal = None
             if dados['idiomas']:
-                # Procura primeiro por inglês
                 idioma_principal = next(
                     (idioma for idioma in dados['idiomas'] if 'ingles' in idioma['nome'].lower()),
-                    dados['idiomas'][0]  # Se não encontrar inglês, usa o primeiro da lista
+                    dados['idiomas'][0]
                 )
-
-                # Busca ou cria o idioma principal
                 idioma_principal_id = self._get_or_create_idioma(idioma_principal['nome'])
                 nivel_idioma_principal = idioma_principal.get('nivel', '').lower()
 
-            # 5. Inserir profissional
             query = """
-               INSERT INTO profissionais (
-                   nome, email, telefone, endereco, portfolio_url, linkedin_url,
-                   github_url, profissao_id, faculdade_id, genero_id, pdf_curriculo,
-                   idade, pretensao_salarial, disponibilidade, tipo_contrato,
-                   observacoes_ia, campos_dinamicos, idioma_principal_id, nivel_idioma_principal
-               ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               """
-
+              
+                   INSERT INTO profissionais (
+                       nome, email, telefone, endereco, portfolio_url, linkedin_url,
+                       github_url, profissao_id, faculdade_id, genero_id, pdf_curriculo,
+                       idade, pretensao_salarial, disponibilidade, tipo_contrato,
+                       observacoes_ia, campos_dinamicos, idioma_principal_id, nivel_idioma_principal,
+                       habilidades
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   """
             valores = (
                 dados['profissional']['nome'],
                 dados['profissional']['email'],
@@ -141,22 +111,20 @@ class DataService:
                 dados['profissional']['disponibilidade'],
                 dados['profissional']['tipo_contrato'],
                 json.dumps(dados['profissional']['observacoes_ia']),
-                json.dumps(dados['profissional']['campos_dinamicos']),
+                json.dumps(dados['profissional']['habilidades']),
                 idioma_principal_id,
-                nivel_idioma_principal
+                nivel_idioma_principal,
+                json.dumps(dados['profissional']['campos_dinamicos']),
             )
             self.cursor.execute(query, valores)
             profissional_id = self.cursor.lastrowid
 
-            # 6. Salvar todos os idiomas
             for idioma in dados['idiomas']:
                 self._salvar_idioma(profissional_id, idioma)
 
-            # 7. Salvar áreas de interesse
             for area in dados['areas_interesse']:
                 self._salvar_area_interesse(profissional_id, area)
 
-            # 8. Salvar áreas de atuação
             for area in dados['areas_atuacao']:
                 self._salvar_area_atuacao(profissional_id, area)
 
@@ -172,45 +140,56 @@ class DataService:
             self._close_connection()
 
     def _get_or_create_profissao(self, nome):
-        """Busca ou cria uma profissão considerando similaridade"""
-        nome = nome.lower().strip()
+        try:
+            nome = nome.lower().strip()
+            nome_padrao = None
 
-        # Dicionário de profissões similares
-        profissoes_similares = profissoes_classes
-
-        # Verifica se o nome está nas chaves do dicionário de similaridade
-        if nome in profissoes_similares:
-            nome_padrao = nome
-        else:
-            # Busca o nome padrão para o qual o nome fornecido é similar
-            for profissao, similares in profissoes_similares.items():
-                if nome in similares:
-                    nome_padrao = profissao
-                    break
-            else:
+            # Primeiro procura correspondência exata
+            if nome in profissoes_classes:
                 nome_padrao = nome
+            else:
+                # Procura nas listas de similares
+                for profissao_padrao, similares in profissoes_classes.items():
+                    if nome in similares:
+                        nome_padrao = profissao_padrao
+                        break
 
-        # Busca profissão existente pelo nome padrão
-        self.cursor.execute(
-            "SELECT id FROM profissoes WHERE LOWER(nome) = %s",
-            (nome_padrao,)
-        )
-        result = self.cursor.fetchone()
+            # Se não encontrou em nenhum lugar, usa o nome original
+            if nome_padrao is None:
+                nome_padrao = 'profissional'
 
-        if result:
+            # Busca no banco
+            self.cursor.execute(
+                "SELECT id FROM profissoes WHERE LOWER(nome) = %s",
+                (nome_padrao,)
+            )
+            result = self.cursor.fetchone()
+
+            if result:
+                return result['id']
+
+            # Insere nova profissão padronizada
+            self.cursor.execute(
+                "INSERT INTO profissoes (nome) VALUES (%s)",
+                (nome_padrao,)
+            )
+            return self.cursor.lastrowid
+
+        except Exception as e:
+            print(f"Erro ao criar/buscar profissão '{nome}': {e}")
+            # Em caso de erro, retorna profissão genérica
+            self.cursor.execute(
+                "SELECT id FROM profissoes WHERE nome = 'profissional'"
+            )
+            result = self.cursor.fetchone()
+            if not result:
+                self.cursor.execute(
+                    "INSERT INTO profissoes (nome) VALUES ('profissional')"
+                )
+                return self.cursor.lastrowid
             return result['id']
-
-        # Cria nova profissão com o nome padrão
-        self.cursor.execute(
-            "INSERT INTO profissoes (nome) VALUES (%s)",
-            (nome_padrao,)
-        )
-        return self.cursor.lastrowid
     def _get_or_create_faculdade(self, nome, cidade='', estado=''):
-        """Busca ou cria uma faculdade"""
         nome = nome.lower().strip()
-
-        # Busca faculdade existente
         self.cursor.execute(
             "SELECT id FROM faculdades WHERE LOWER(nome) = %s",
             (nome,)
@@ -220,7 +199,6 @@ class DataService:
         if result:
             return result['id']
 
-        # Cria nova faculdade
         self.cursor.execute(
             "INSERT INTO faculdades (nome, cidade, estado) VALUES (%s, %s, %s)",
             (nome, cidade.lower(), estado.lower())
@@ -228,13 +206,8 @@ class DataService:
         return self.cursor.lastrowid
 
     def _get_or_create_idioma(self, nome):
-        """
-        Busca ou cria um idioma, evitando duplicatas
-        """
         try:
             nome = nome.lower().strip()
-
-            # Primeiro busca se já existe
             self.cursor.execute(
                 "SELECT id FROM idiomas WHERE LOWER(nome) = %s",
                 (nome,)
@@ -244,7 +217,6 @@ class DataService:
             if result:
                 return result['id']
 
-            # Se não existe, cria novo
             self.cursor.execute(
                 "INSERT INTO idiomas (nome) VALUES (%s)",
                 (nome,)
@@ -256,11 +228,7 @@ class DataService:
             raise
 
     def _salvar_idioma(self, profissional_id, idioma):
-        """
-        Salva um idioma para o profissional, evitando duplicatas
-        """
         try:
-            # Primeiro busca se o idioma já existe
             self.cursor.execute(
                 "SELECT id FROM idiomas WHERE LOWER(nome) = %s",
                 (idioma['nome'].lower(),)
@@ -270,14 +238,12 @@ class DataService:
             if resultado:
                 idioma_id = resultado['id']
             else:
-                # Se não existe, cria novo idioma
                 self.cursor.execute(
                     "INSERT INTO idiomas (nome, codigo) VALUES (%s, %s)",
                     (idioma['nome'].lower(), idioma.get('codigo', ''))
                 )
                 idioma_id = self.cursor.lastrowid
 
-            # Agora cria ou atualiza o relacionamento
             self.cursor.execute("""
                 INSERT INTO profissionais_idiomas 
                     (profissional_id, idioma_id, nivel, certificacao) 
@@ -298,22 +264,25 @@ class DataService:
             raise
 
     def _salvar_area_interesse(self, profissional_id, area):
-        """
-        Salva uma área de interesse para o profissional, considerando similaridade
-        """
         try:
             nome = area['nome'].lower().strip()
+            nome_padrao = None
 
-            # Dicionário de áreas de interesse similares
-            areas_interesse_similares = profissoes_classes
+            # Primeiro procura correspondência exata
+            if nome in profissoes_classes:
+                nome_padrao = nome
+            else:
+                # Procura nas listas de similares
+                for area_padrao, similares in profissoes_classes.items():
+                    if nome in similares:
+                        nome_padrao = area_padrao
+                        break
 
-            nome_padrao = nome
-            for area_interesse, similares in areas_interesse_similares.items():
-                if nome in similares:
-                    nome_padrao = area_interesse
-                    break
+            # Se não encontrou, mantém o original
+            if nome_padrao is None:
+                nome_padrao = nome
 
-            # Busca área existente pelo nome padrão
+            # Busca ou cria a área
             self.cursor.execute(
                 "SELECT id FROM areas_interesse WHERE LOWER(nome) = %s",
                 (nome_padrao,)
@@ -323,14 +292,13 @@ class DataService:
             if resultado:
                 area_id = resultado['id']
             else:
-                # Cria nova área com o nome padrão
                 self.cursor.execute(
                     "INSERT INTO areas_interesse (nome) VALUES (%s)",
                     (nome_padrao,)
                 )
                 area_id = self.cursor.lastrowid
 
-            # Cria ou atualiza o relacionamento
+            # Insere o relacionamento
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_interesse
                     (profissional_id, area_interesse_id, nivel_interesse)
@@ -345,25 +313,29 @@ class DataService:
             ))
 
         except Exception as e:
-            print(f"Erro ao salvar área de interesse: {e}")
+            print(f"Erro ao salvar área de interesse '{nome}': {e}")
             raise
 
     def _salvar_area_atuacao(self, profissional_id, area):
-        """
-        Salva uma área de atuação para o profissional, considerando similaridade
-        """
         try:
             nome = area['nome'].lower().strip()
+            nome_padrao = None
 
-            # Dicionário de áreas de atuação similares
-            areas_atuacao_similares = profissoes_classes
-            nome_padrao = nome
-            for area_padrao, similares in areas_atuacao_similares.items():
-                if nome in similares:
-                    nome_padrao = area_padrao
-                    break
+            # Primeiro procura correspondência exata
+            if nome in profissoes_classes:
+                nome_padrao = nome
+            else:
+                # Procura nas listas de similares
+                for area_padrao, similares in profissoes_classes.items():
+                    if nome in similares:
+                        nome_padrao = area_padrao
+                        break
 
-            # Busca área existente pelo nome padrão
+            # Se não encontrou, mantém o original
+            if nome_padrao is None:
+                nome_padrao = nome
+
+            # Busca ou cria a área
             self.cursor.execute(
                 "SELECT id FROM areas_atuacao WHERE LOWER(nome) = %s",
                 (nome_padrao,)
@@ -373,14 +345,13 @@ class DataService:
             if resultado:
                 area_id = resultado['id']
             else:
-                # Cria nova área com o nome padrão
                 self.cursor.execute(
                     "INSERT INTO areas_atuacao (nome) VALUES (%s)",
                     (nome_padrao,)
                 )
                 area_id = self.cursor.lastrowid
 
-            # Cria ou atualiza o relacionamento
+            # Insere o relacionamento
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_atuacao
                     (profissional_id, area_atuacao_id, anos_experiencia,
@@ -402,25 +373,23 @@ class DataService:
             ))
 
         except Exception as e:
-            print(f"Erro ao salvar área de atuação: {e}")
+            print(f"Erro ao salvar área de atuação '{nome}': {e}")
             raise
     def buscar_profissionais(self, filtros=None):
-        """
-        Busca profissionais com filtros opcionais
-        """
         try:
             self._get_connection()
-
             query = """
             SELECT 
-                p.*, 
+                p.*,
                 prof.nome as profissao,
                 g.nome as genero,
                 f.nome as faculdade,
                 i.nome as idioma_principal,
                 GROUP_CONCAT(DISTINCT CONCAT(i2.nome, ' (', pi.nivel, ')')) as idiomas,
                 GROUP_CONCAT(DISTINCT ai.nome) as areas_interesse,
-                GROUP_CONCAT(DISTINCT CONCAT(aa.nome, ' (', paa.anos_experiencia, ' anos)')) as areas_atuacao
+                GROUP_CONCAT(DISTINCT CONCAT(aa.nome, ' (', paa.anos_experiencia, ' anos)')) as areas_atuacao,
+                GROUP_CONCAT(DISTINCT CONCAT(paa.ultimo_cargo, ' em ', paa.ultima_empresa)) as experiencias,
+                GROUP_CONCAT(DISTINCT paa.descricao_atividades) as descricao_experiencias
             FROM profissionais p
             LEFT JOIN profissoes prof ON p.profissao_id = prof.id
             LEFT JOIN generos g ON p.genero_id = g.id
@@ -439,30 +408,87 @@ class DataService:
 
             if filtros:
                 if 'nome' in filtros:
-                    where_clauses.append("LOWER(p.nome) LIKE %s")
+                    where_clauses.append("(LOWER(p.nome) LIKE %s)")
                     params.append(f"%{filtros['nome'].lower()}%")
+
                 if 'profissao' in filtros:
-                    where_clauses.append("LOWER(prof.nome) LIKE %s")
-                    params.append(f"%{filtros['profissao'].lower()}%")
+                    where_clauses.append("""(
+                        LOWER(prof.nome) LIKE %s OR 
+                        LOWER(paa.ultimo_cargo) LIKE %s OR
+                        JSON_SEARCH(LOWER(p.habilidades), 'one', %s) IS NOT NULL
+                    )""")
+                    termo = f"%{filtros['profissao'].lower()}%"
+                    params.extend([termo, termo, termo])
+
                 if 'genero' in filtros:
                     where_clauses.append("LOWER(g.nome) = %s")
                     params.append(filtros['genero'].lower())
+
                 if 'area_atuacao' in filtros:
-                    where_clauses.append("LOWER(aa.nome) LIKE %s")
-                    params.append(f"%{filtros['area_atuacao'].lower()}%")
+                    where_clauses.append("""(
+                        LOWER(aa.nome) LIKE %s OR 
+                        LOWER(paa.descricao_atividades) LIKE %s OR
+                        JSON_SEARCH(LOWER(p.habilidades), 'one', %s) IS NOT NULL
+                    )""")
+                    termo = f"%{filtros['area_atuacao'].lower()}%"
+                    params.extend([termo, termo, termo])
+
+                if 'idioma' in filtros:
+                    where_clauses.append("""(
+                        LOWER(i.nome) = %s OR 
+                        LOWER(i2.nome) = %s
+                    )""")
+                    params.extend([filtros['idioma'].lower(), filtros['idioma'].lower()])
+
+                if 'experiencia_minima' in filtros:
+                    where_clauses.append("paa.anos_experiencia >= %s")
+                    params.append(filtros['experiencia_minima'])
+
+                if 'habilidade' in filtros:
+                    where_clauses.append("""(
+                        JSON_SEARCH(LOWER(p.habilidades), 'one', %s) IS NOT NULL OR
+                        LOWER(paa.descricao_atividades) LIKE %s
+                    )""")
+                    termo = f"%{filtros['habilidade'].lower()}%"
+                    params.extend([termo, termo])
+
+                if 'cidade' in filtros:
+                    where_clauses.append("LOWER(p.endereco) LIKE %s")
+                    params.append(f"%{filtros['cidade'].lower()}%")
+
+                if 'pretensao_maxima' in filtros:
+                    where_clauses.append("p.pretensao_salarial <= %s")
+                    params.append(filtros['pretensao_maxima'])
+
+                if 'disponibilidade' in filtros:
+                    where_clauses.append("LOWER(p.disponibilidade) = %s")
+                    params.append(filtros['disponibilidade'].lower())
 
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
 
             query += " GROUP BY p.id"
 
+            if 'ordenar_por' in filtros:
+                ordem = filtros['ordenar_por']
+                if ordem == 'experiencia':
+                    query += " ORDER BY paa.anos_experiencia DESC"
+                elif ordem == 'pretensao':
+                    query += " ORDER BY p.pretensao_salarial ASC"
+                elif ordem == 'mais_recente':
+                    query += " ORDER BY p.data_criacao DESC"
+
+            if 'limite' in filtros:
+                query += " LIMIT %s"
+                params.append(filtros['limite'])
+
             self.cursor.execute(query, params)
             return self.cursor.fetchall()
 
         finally:
             self._close_connection()
+
     def executar_query(self, query):
-        """Executa uma query SQL personalizada"""
         try:
             self._get_connection()
             self.cursor.execute(query)

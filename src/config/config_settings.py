@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS profissionais (
     ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     observacoes_ia JSON,
     campos_dinamicos JSON,
+    habilidades JSON DEFAULT NULL,
     FOREIGN KEY (profissao_id) REFERENCES profissoes(id),
     FOREIGN KEY (faculdade_id) REFERENCES faculdades(id),
     FOREIGN KEY (genero_id) REFERENCES generos(id),
