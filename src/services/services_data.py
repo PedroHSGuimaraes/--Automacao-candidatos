@@ -1,7 +1,6 @@
 import json
 from datetime import datetime
 from src.database.database_connection import DatabaseConnection
-from src.utils.classes_profissao import profissoes_classes
 
 
 class DataService:
@@ -142,42 +141,51 @@ class DataService:
     def _get_or_create_profissao(self, nome):
         try:
             nome = nome.lower().strip()
-            nome_padrao = None
 
-            # Primeiro procura correspondência exata
-            if nome in profissoes_classes:
-                nome_padrao = nome
-            else:
-                # Procura nas listas de similares
-                for profissao_padrao, similares in profissoes_classes.items():
-                    if nome in similares:
-                        nome_padrao = profissao_padrao
-                        break
-
-            # Se não encontrou em nenhum lugar, usa o nome original
-            if nome_padrao is None:
-                nome_padrao = 'profissional'
-
-            # Busca no banco
+            # Primeiro busca profissão exata
             self.cursor.execute(
-                "SELECT id FROM profissoes WHERE LOWER(nome) = %s",
-                (nome_padrao,)
+                "SELECT id, nome FROM profissoes WHERE LOWER(nome) = %s",
+                (nome,)
             )
             result = self.cursor.fetchone()
-
             if result:
                 return result['id']
 
-            # Insere nova profissão padronizada
+            # Se não encontrou exato, busca similares
+            self.cursor.execute("""
+                SELECT id, nome, COUNT(*) as uso
+                FROM profissoes 
+                WHERE LOWER(nome) LIKE %s
+                OR LOWER(descricao) LIKE %s
+                GROUP BY id, nome
+                ORDER BY uso DESC
+                LIMIT 1
+            """, (f"%{nome}%", f"%{nome}%"))
+
+            similar = self.cursor.fetchone()
+            if similar:
+                return similar['id']
+
+            # Se não encontrou nenhum similar, cria novo
             self.cursor.execute(
-                "INSERT INTO profissoes (nome) VALUES (%s)",
-                (nome_padrao,)
+                "INSERT INTO profissoes (nome, descricao) VALUES (%s, %s)",
+                (nome, f"Profissão identificada a partir do termo: {nome}")
             )
-            return self.cursor.lastrowid
+            novo_id = self.cursor.lastrowid
+
+            # Atualiza métricas de uso
+            self.cursor.execute("""
+                UPDATE profissoes 
+                SET total_uso = COALESCE(total_uso, 0) + 1,
+                    ultima_atualizacao = NOW()
+                WHERE id = %s
+            """, (novo_id,))
+
+            return novo_id
 
         except Exception as e:
             print(f"Erro ao criar/buscar profissão '{nome}': {e}")
-            # Em caso de erro, retorna profissão genérica
+            # Em caso de erro, retorna id da profissão genérica
             self.cursor.execute(
                 "SELECT id FROM profissoes WHERE nome = 'profissional'"
             )
@@ -188,6 +196,10 @@ class DataService:
                 )
                 return self.cursor.lastrowid
             return result['id']
+
+
+
+
     def _get_or_create_faculdade(self, nome, cidade='', estado=''):
         nome = nome.lower().strip()
         self.cursor.execute(
@@ -266,37 +278,59 @@ class DataService:
     def _salvar_area_interesse(self, profissional_id, area):
         try:
             nome = area['nome'].lower().strip()
-            nome_padrao = None
 
-            # Primeiro procura correspondência exata
-            if nome in profissoes_classes:
-                nome_padrao = nome
-            else:
-                # Procura nas listas de similares
-                for area_padrao, similares in profissoes_classes.items():
-                    if nome in similares:
-                        nome_padrao = area_padrao
-                        break
-
-            # Se não encontrou, mantém o original
-            if nome_padrao is None:
-                nome_padrao = nome
-
-            # Busca ou cria a área
+            # Primeiro busca área exata
             self.cursor.execute(
                 "SELECT id FROM areas_interesse WHERE LOWER(nome) = %s",
-                (nome_padrao,)
+                (nome,)
             )
             resultado = self.cursor.fetchone()
 
             if resultado:
                 area_id = resultado['id']
+                # Atualiza métricas de uso
+                self.cursor.execute("""
+                    UPDATE areas_interesse 
+                    SET total_uso = COALESCE(total_uso, 0) + 1,
+                        ultima_atualizacao = NOW(),
+                        termos_similares = CONCAT_WS(',', termos_similares, %s)
+                    WHERE id = %s
+                """, (area.get('termos_relacionados', ''), area_id))
             else:
-                self.cursor.execute(
-                    "INSERT INTO areas_interesse (nome) VALUES (%s)",
-                    (nome_padrao,)
-                )
-                area_id = self.cursor.lastrowid
+                # Busca similares
+                self.cursor.execute("""
+                    SELECT id, nome
+                    FROM areas_interesse 
+                    WHERE LOWER(nome) LIKE %s
+                    OR LOWER(descricao) LIKE %s
+                    OR MATCH(nome, descricao, termos_similares) AGAINST(%s IN BOOLEAN MODE)
+                    ORDER BY total_uso DESC
+                    LIMIT 1
+                """, (f"%{nome}%", f"%{nome}%", nome))
+
+                similar = self.cursor.fetchone()
+                if similar:
+                    area_id = similar['id']
+                    # Atualiza área existente
+                    self.cursor.execute("""
+                        UPDATE areas_interesse 
+                        SET total_uso = COALESCE(total_uso, 0) + 1,
+                            ultima_atualizacao = NOW(),
+                            termos_similares = CONCAT_WS(',', termos_similares, %s)
+                        WHERE id = %s
+                    """, (nome, area_id))
+                else:
+                    # Cria nova área
+                    self.cursor.execute("""
+                        INSERT INTO areas_interesse 
+                        (nome, descricao, termos_similares, total_uso) 
+                        VALUES (%s, %s, %s, 1)
+                    """, (
+                        nome,
+                        area.get('descricao', f"Área de interesse identificada a partir do termo: {nome}"),
+                        area.get('termos_relacionados', '')
+                    ))
+                    area_id = self.cursor.lastrowid
 
             # Insere o relacionamento
             self.cursor.execute("""
@@ -319,37 +353,59 @@ class DataService:
     def _salvar_area_atuacao(self, profissional_id, area):
         try:
             nome = area['nome'].lower().strip()
-            nome_padrao = None
 
-            # Primeiro procura correspondência exata
-            if nome in profissoes_classes:
-                nome_padrao = nome
-            else:
-                # Procura nas listas de similares
-                for area_padrao, similares in profissoes_classes.items():
-                    if nome in similares:
-                        nome_padrao = area_padrao
-                        break
-
-            # Se não encontrou, mantém o original
-            if nome_padrao is None:
-                nome_padrao = nome
-
-            # Busca ou cria a área
+            # Primeiro busca área exata
             self.cursor.execute(
                 "SELECT id FROM areas_atuacao WHERE LOWER(nome) = %s",
-                (nome_padrao,)
+                (nome,)
             )
             resultado = self.cursor.fetchone()
 
             if resultado:
                 area_id = resultado['id']
+                # Atualiza métricas de uso
+                self.cursor.execute("""
+                    UPDATE areas_atuacao 
+                    SET total_uso = COALESCE(total_uso, 0) + 1,
+                        ultima_atualizacao = NOW(),
+                        termos_similares = CONCAT_WS(',', termos_similares, %s)
+                    WHERE id = %s
+                """, (area.get('termos_relacionados', ''), area_id))
             else:
-                self.cursor.execute(
-                    "INSERT INTO areas_atuacao (nome) VALUES (%s)",
-                    (nome_padrao,)
-                )
-                area_id = self.cursor.lastrowid
+                # Busca similares
+                self.cursor.execute("""
+                    SELECT id, nome
+                    FROM areas_atuacao 
+                    WHERE LOWER(nome) LIKE %s
+                    OR LOWER(descricao) LIKE %s
+                    OR MATCH(nome, descricao, termos_similares) AGAINST(%s IN BOOLEAN MODE)
+                    ORDER BY total_uso DESC
+                    LIMIT 1
+                """, (f"%{nome}%", f"%{nome}%", nome))
+
+                similar = self.cursor.fetchone()
+                if similar:
+                    area_id = similar['id']
+                    # Atualiza área existente
+                    self.cursor.execute("""
+                        UPDATE areas_atuacao 
+                        SET total_uso = COALESCE(total_uso, 0) + 1,
+                            ultima_atualizacao = NOW(),
+                            termos_similares = CONCAT_WS(',', termos_similares, %s)
+                        WHERE id = %s
+                    """, (nome, area_id))
+                else:
+                    # Cria nova área
+                    self.cursor.execute("""
+                        INSERT INTO areas_atuacao 
+                        (nome, descricao, termos_similares, total_uso) 
+                        VALUES (%s, %s, %s, 1)
+                    """, (
+                        nome,
+                        area.get('descricao', f"Área de atuação identificada a partir do termo: {nome}"),
+                        area.get('termos_relacionados', '')
+                    ))
+                    area_id = self.cursor.lastrowid
 
             # Insere o relacionamento
             self.cursor.execute("""
@@ -375,6 +431,7 @@ class DataService:
         except Exception as e:
             print(f"Erro ao salvar área de atuação '{nome}': {e}")
             raise
+
     def buscar_profissionais(self, filtros=None):
         try:
             self._get_connection()

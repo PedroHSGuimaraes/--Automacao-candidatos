@@ -28,30 +28,44 @@ CREATE TABLE IF NOT EXISTS generos (
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Profissões
+-- Tabela de Profissões (atualizada)
 CREATE TABLE IF NOT EXISTS profissoes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
     descricao TEXT,
-    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
+    total_uso INT DEFAULT 0,
+    ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    termos_similares TEXT,
+    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nome (nome),
+    FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Áreas de Interesse
+-- Tabela de Áreas de Interesse (atualizada)
 CREATE TABLE IF NOT EXISTS areas_interesse (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
     descricao TEXT,
-    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
+    total_uso INT DEFAULT 0,
+    ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    termos_similares TEXT,
+    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nome (nome),
+    FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Áreas de Atuação
+-- Tabela de Áreas de Atuação (atualizada)
 CREATE TABLE IF NOT EXISTS areas_atuacao (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
     descricao TEXT,
-    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
+    total_uso INT DEFAULT 0,
+    ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    termos_similares TEXT,
+    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nome (nome),
+    FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Tabela de Faculdades
 CREATE TABLE IF NOT EXISTS faculdades (
     id INT AUTO_INCREMENT PRIMARY KEY,

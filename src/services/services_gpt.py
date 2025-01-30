@@ -1,9 +1,17 @@
 import openai
 import json
-import re
+import mysql.connector
 from datetime import datetime
-from src.config.config_settings import OPENAI_KEY, NIVEIS_IDIOMA, TIPOS_CONTRATO, DISPONIBILIDADE, SQL_SCHEMA
-from src.utils.classes_profissao import profissoes_classes
+import re
+
+from src.config.config_settings import (
+    OPENAI_KEY,
+    NIVEIS_IDIOMA,
+    TIPOS_CONTRATO,
+    DISPONIBILIDADE,
+    DB_CONFIG
+)
+
 class GPTService:
     def __init__(self):
         openai.api_key = OPENAI_KEY
@@ -11,34 +19,195 @@ class GPTService:
             "role": "system",
             "content": "Você é um analisador avançado de currículos especializado em extrair informações estruturadas."
         }
+        self.conn = None
+        self.cursor = None
+
+    def _get_connection(self):
+        try:
+            self.conn = mysql.connector.connect(**DB_CONFIG)
+            self.cursor = self.conn.cursor(dictionary=True)
+        except Exception as e:
+            print(f"Erro ao conectar ao banco: {e}")
+            raise
+
+    def _close_connection(self):
+        try:
+            if self.cursor:
+                self.cursor.close()
+            if self.conn and self.conn.is_connected():
+                self.conn.close()
+        except Exception as e:
+            print(f"Erro ao fechar conexão: {e}")
+
+    def _buscar_profissoes_similares(self):
+        """Busca todas as profissões e seus termos similares no banco"""
+        try:
+            self._get_connection()
+            self.cursor.execute("""
+                SELECT 
+                    nome,
+                    descricao,
+                    termos_similares,
+                    total_uso
+                FROM profissoes 
+                WHERE total_uso > 0 
+                ORDER BY total_uso DESC
+            """)
+            profissoes = self.cursor.fetchall()
+
+            # Formata os dados para o prompt
+            profissoes_info = []
+            for prof in profissoes:
+                termos = prof['termos_similares'].split(',') if prof['termos_similares'] else []
+                termos = [t.strip() for t in termos if t.strip()]  # Limpa termos vazios
+                profissoes_info.append({
+                    'nome': prof['nome'],
+                    'descricao': prof['descricao'] or '',
+                    'termos_similares': termos,
+                    'frequencia': prof['total_uso']
+                })
+
+            return profissoes_info
+        except Exception as e:
+            print(f"Erro ao buscar profissões: {e}")
+            return []
+        finally:
+            self._close_connection()
 
     def analisar_curriculo(self, texto):
         try:
+            # Busca profissões existentes
+            profissoes_existentes = self._buscar_profissoes_similares()
+            profissoes_prompt = ""
+
+            if profissoes_existentes:
+                profissoes_prompt = "\n\nPROFISSÕES CADASTRADAS:\n"
+                for prof in profissoes_existentes:
+                    prof_info = (
+                        f"- {prof['nome']} (usado {prof['frequencia']} vezes)\n"
+                        f"  Similares: {', '.join(prof['termos_similares']) if prof['termos_similares'] else 'nenhum'}\n"
+                    )
+                    profissoes_prompt += prof_info
+
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    self.system_message,
-                    self._criar_mensagem_usuario(texto)
+                    {
+                        "role": "system",
+                        "content": """Você é um analisador especializado em extrair informações 
+                        estruturadas de currículos e retornar APENAS JSON válido."""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""
+                        IMPORTANTE: Retorne APENAS um JSON válido sem nenhum texto adicional.
+
+                        {profissoes_prompt}
+
+                        Analise o currículo e retorne este JSON:
+
+                        {{
+                            "nome": "string",
+                            "email": "string",
+                            "telefone": "string",
+                            "endereco": "string",
+                            "portfolio_url": "string",
+                            "linkedin_url": "string",
+                            "github_url": "string",
+                            "genero": "string",
+                            "idade": null,
+                            "pretensao_salarial": null,
+                            "disponibilidade": "string",
+                            "tipo_contrato": "string",
+                            "habilidades": ["string"],
+
+                            "profissao": {{
+                                "nome": "string",
+                                "descricao": "string",
+                                "termos_similares": ["string"]
+                            }},
+
+                            "faculdade": {{
+                                "nome": "string",
+                                "cidade": "string",
+                                "estado": "string",
+                                "pais": "brasil",
+                                "tipo": "string"
+                            }},
+
+                            "idiomas": [
+                                {{
+                                    "nome": "string",
+                                    "nivel": "string",
+                                    "certificacao": "string"
+                                }}
+                            ],
+
+                            "areas_interesse": [
+                                {{
+                                    "nome": "string",
+                                    "nivel_interesse": 3,
+                                    "termos_similares": ["string"]
+                                }}
+                            ],
+
+                            "areas_atuacao": [
+                                {{
+                                    "nome": "string",
+                                    "anos_experiencia": 0,
+                                    "ultimo_cargo": "string",
+                                    "ultima_empresa": "string",
+                                    "descricao_atividades": "string",
+                                    "termos_similares": ["string"]
+                                }}
+                            ],
+
+                            "observacoes_ia": ["string"],
+                            "campos_dinamicos": {{}}
+                        }}
+
+                        REGRAS:
+                        1. GÊNERO: masculino, feminino ou não identificado
+                        2. DISPONIBILIDADE: {DISPONIBILIDADE}
+                        3. TIPO_CONTRATO: {TIPOS_CONTRATO}
+                        4. IDIOMAS (níveis): {NIVEIS_IDIOMA}
+                        5. INTERESSE: 1 a 5
+                        6. ESTADOS: usar siglas (SP, RJ, MG...)
+
+                        VALIDAÇÕES:
+                        1. Todo texto em lowercase
+                        2. Arrays vazios = []
+                        3. Objetos vazios = {{}}
+                        4. Textos vazios = ""
+                        5. Números vazios = null
+                        6. Mínimo 3 observações da IA
+
+                        IDENTIFICAÇÃO DE PROFISSÕES:
+                        1. Primeiro procure nas profissões cadastradas
+                        2. Use a mais similar se encontrar
+                        3. Se não encontrar, crie nova com termos similares
+                        4. Mantenha consistência com as existentes
+
+                        Currículo para análise:
+                        {texto}
+                        """
+                    }
                 ],
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=2000
             )
 
             content = response.choices[0].message.content.strip()
-
-
-            content = content.replace("```json", "").replace("```", "").strip()
-
+            content = content.replace('```json', '').replace('```', '').strip()
 
             try:
                 dados = json.loads(content)
-            except json.JSONDecodeError:
-                print("Erro ao fazer parse do JSON")
+            except json.JSONDecodeError as e:
+                print(f"Erro no JSON: {e}")
+                print(f"Conteúdo recebido: {content[:500]}...")
                 return self._get_estrutura_vazia()
 
-
             dados_validados = self._validar_dados(dados)
-
-
             dados_validados = self._converter_strings_para_lowercase(dados_validados)
 
             return dados_validados
@@ -99,10 +268,10 @@ class GPTService:
                 'tipo': str(dados.get('faculdade', {}).get('tipo', ''))
             }
 
-
             profissao = {
-                'nome': str(dados.get('profissao', {}).get('nome', 'profissional')),
-                'descricao': str(dados.get('profissao', {}).get('descricao', ''))
+                'nome': str(dados.get('profissao', {}).get('nome', '')).lower().strip(),
+                'descricao': str(dados.get('profissao', {}).get('descricao', '')),
+                'termos_relacionados': dados.get('profissao', {}).get('termos_relacionados', [])
             }
 
             # Arrays
@@ -188,6 +357,7 @@ class GPTService:
         except Exception as e:
             print(f"Erro ao inferir gênero do nome '{nome}': {e}")
             return 'não identificado'
+
     def _criar_mensagem_usuario(self, texto):
         return {
             "role": "user",
@@ -210,7 +380,8 @@ class GPTService:
 
                 "profissao": {{
                     "nome": "string",
-                    "descricao": "string"
+                    "descricao": "string",
+                    "termos_relacionados": ["string"] 
                 }},
 
                 "faculdade": {{
@@ -283,9 +454,9 @@ class GPTService:
             - Se houver erro, retorne a estrutura vazia
            
             **8.SUPER IMPORTANTE PROFISSOES SIMILARES:
-            -sempre salvar as profissoes segundo para nao repedir {profissoes_classes}
-            -sempre salvar as areas de interesse e atuacao para nao repedir {profissoes_classes}
-            -sempre salvar as areas de atuação para nao repedir {profissoes_classes}
+            -sempre salvar as profissoes segundo para nao repedir 
+            -sempre salvar as areas de interesse e atuacao para nao repetir 
+            -sempre salvar as areas de atuação para nao repetir 
             
             9.Sigla estados brasileiros:
             -Sempre coloque as siglas quando houver estado AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, 
@@ -342,97 +513,120 @@ class GPTService:
 
     def gerar_query_sql(self, prompt, schema=None):
         try:
-            lista_profissoes = []
-            # Cria uma lista de todas as profissões e similares para busca
-            for profissao, similares in profissoes_classes.items():
-                lista_profissoes.append(profissao)
-                lista_profissoes.extend(similares)
+            # Padrões específicos para áreas comuns
+            padroes_especificos = {
+                'tecnologia': {
+                    'back_end': r'back[-\s]?end|backend|desenvolvimento\s*back[-\s]?end',
+                    'front_end': r'front[-\s]?end|frontend|desenvolvimento\s*front[-\s]?end',
+                    'full_stack': r'full[-\s]?stack|fullstack|desenvolvimento\s*full[-\s]?stack',
+                    'mobile': r'mobile|android|ios|desenvolvimento\s*mobile',
+                    'web': r'desenvolvimento\s*web|web\s*developer',
+                    'dados': r'cientista\s*de\s*dados|analista\s*de\s*dados|data\s*science',
+                    'devops': r'devops|dev[-\s]?ops|engenheiro\s*devops',
+                    'qa': r'qa|quality\s*assurance|teste\s*de\s*software'
+                },
+                'saude': {
+                    'medico': r'médic[oa]|dr\.|doutor[a]?',
+                    'enfermeiro': r'enfermeir[oa]|técnic[oa]\s*de\s*enfermagem',
+                    'dentista': r'dentista|odontolog[oa]',
+                    'fisioterapeuta': r'fisioterapeuta|fisioterap[êe]utic[oa]'
+                },
+                'educacao': {
+                    'professor': r'professor[a]?|docente|educador[a]?',
+                    'coordenador': r'coordenador[a]?\s*pedagógic[oa]?',
+                    'diretor': r'diretor[a]?\s*escolar'
+                }
+            }
 
-            profissoes_sql = "'" + "','".join(lista_profissoes) + "'"
+            # Processa o prompt
+            prompt_lower = prompt.lower()
+            padrao_encontrado = None
 
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""Você é um gerador de queries SQL simples e direto.
-                        RETORNE APENAS A QUERY, sem explicações ou marcações.
+            # Primeiro tenta encontrar padrões específicos
+            for area, padroes in padroes_especificos.items():
+                for tipo, padrao in padroes.items():
+                    if re.search(padrao, prompt_lower):
+                        padrao_encontrado = padrao
+                        break
+                if padrao_encontrado:
+                    break
 
-                        Estrutura base da query que você DEVE seguir:
-                        SELECT DISTINCT
-                            p.nome,
-                            p.email,
-                            prof.nome as profissao,
-                            paa.anos_experiencia,
-                            paa.ultimo_cargo,
-                            paa.ultima_empresa,
-                            aa.nome as area_atuacao,
-                            p.habilidades
-                        FROM profissionais p
-                        LEFT JOIN profissoes prof ON p.profissao_id = prof.id
-                        LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
-                        LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
-                        WHERE ...
+            # Se não encontrar padrão específico, cria um mais preciso com as palavras-chave
+            if not padrao_encontrado:
+                termos = prompt_lower.split()
+                palavras_ignorar = {'me', 'de', 'mostre', 'liste', 'quero', 'preciso', 'somente',
+                                    'apenas', 'pessoas', 'profissionais', 'interessadas', 'interessados',
+                                    'em', 'com', 'e', 'ou', 'que', 'tem', 'têm', 'possuem', 'são'}
+                termos_busca = [termo for termo in termos if termo not in palavras_ignorar]
 
-                        Profissões válidas: {profissoes_sql}
-                        """
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""
-                        Crie uma query SQL para: {prompt}
+                # Cria padrão mais específico juntando os termos
+                padrao_encontrado = r'\b(' + '|'.join(termos_busca) + r')\b'
 
-                        REGRAS OBRIGATÓRIAS:
-                        1. Use EXATAMENTE a estrutura base fornecida
-                        2. Adicione apenas a condição WHERE necessária
-                        3. Use sempre LOWER() nas comparações de texto
-                        4. Procure sempre em:
-                           - prof.nome
-                           - paa.ultimo_cargo
-                           - paa.descricao_atividades
-                           - aa.nome
-                           - JSON_CONTAINS(p.habilidades)
-                        5. NÃO use ```sql``` ou qualquer outra marcação
-                        """
-                    }
-                ],
-                temperature=0.1,
-                max_tokens=1000
-            )
-
-            query = response.choices[0].message.content.strip()
-            query = query.replace('```sql', '').replace('```', '').strip()
-
-            # Validações básicas
-            query_upper = query.upper()
-            if not query_upper.startswith('SELECT DISTINCT'):
-                raise Exception("Query deve começar com SELECT DISTINCT")
-
-            if 'FROM PROFISSIONAIS P' not in query_upper:
-                raise Exception("Query deve usar a estrutura base fornecida")
-
-            if 'WHERE' not in query_upper:
-                raise Exception("Query deve conter cláusula WHERE")
-
-            return query
-
-        except Exception as e:
-            print(f"Erro ao gerar query: {e}")
-            print("Prompt original:", prompt)
-            # Retorna uma query padrão de segurança
-            return """
+            # Monta a query base
+            query_base = """
             SELECT DISTINCT
+                p.id,
                 p.nome,
                 p.email,
+                p.github_url,
+                p.linkedin_url,
+                p.portfolio_url,
                 prof.nome as profissao,
-                paa.anos_experiencia,
-                paa.ultimo_cargo,
-                paa.ultima_empresa,
-                aa.nome as area_atuacao,
-                p.habilidades
+                MAX(paa.anos_experiencia) as anos_experiencia,
+                GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
+                GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
+                GROUP_CONCAT(DISTINCT aa.nome) as areas_atuacao,
+                GROUP_CONCAT(DISTINCT ai.nome) as areas_interesse,
+                p.habilidades,
+                GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
             FROM profissionais p
             LEFT JOIN profissoes prof ON p.profissao_id = prof.id
             LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
             LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
-            WHERE LOWER(prof.nome) LIKE LOWER(%s)
+            LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
+            LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
+            LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
+            LEFT JOIN idiomas i ON pi.idioma_id = i.id
+            WHERE (
+                prof.nome REGEXP '{0}'
+                OR paa.ultimo_cargo REGEXP '{0}'
+                OR aa.nome REGEXP '{0}'
+                OR ai.nome REGEXP '{0}'
+                OR LOWER(paa.descricao_atividades) REGEXP '{0}'
+                OR JSON_CONTAINS(LOWER(p.habilidades), '"{0}"')
+            )
+            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, prof.nome, p.habilidades
+            """.format(padrao_encontrado)
+
+            return query_base
+
+        except Exception as e:
+            print(f"Erro ao gerar query: {e}")
+            print("Prompt original:", prompt)
+            return """
+            SELECT DISTINCT
+                p.id,
+                p.nome,
+                p.email,
+                p.github_url,
+                p.linkedin_url,
+                p.portfolio_url,
+                prof.nome as profissao,
+                MAX(paa.anos_experiencia) as anos_experiencia,
+                GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
+                GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
+                GROUP_CONCAT(DISTINCT aa.nome) as areas_atuacao,
+                GROUP_CONCAT(DISTINCT ai.nome) as areas_interesse,
+                p.habilidades,
+                GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
+            FROM profissionais p
+            LEFT JOIN profissoes prof ON p.profissao_id = prof.id
+            LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
+            LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
+            LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
+            LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
+            LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
+            LEFT JOIN idiomas i ON pi.idioma_id = i.id
+            WHERE TRUE
+            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, prof.nome, p.habilidades
             """
