@@ -60,7 +60,6 @@ def render_viewer():
             "Selecione a tabela para visualizar:",
             [
                 "Profissionais",
-                "Profissões",
                 "Gêneros",
                 "Faculdades",
                 "Idiomas",
@@ -76,19 +75,16 @@ def render_viewer():
         if tabela_selecionada == "Profissionais":
             query = """
                 SELECT p.*, 
-                    prof.nome as profissao,
+                    p.cargo_atual,
                     g.nome as genero,
                     f.nome as faculdade,
                     i.nome as idioma_principal,
                     p.habilidades
                 FROM profissionais p
-                LEFT JOIN profissoes prof ON p.profissao_id = prof.id
                 LEFT JOIN generos g ON p.genero_id = g.id
                 LEFT JOIN faculdades f ON p.faculdade_id = f.id
                 LEFT JOIN idiomas i ON p.idioma_principal_id = i.id
             """
-        elif tabela_selecionada == "Profissões":
-            query = "SELECT * FROM profissoes"
         elif tabela_selecionada == "Gêneros":
             query = "SELECT * FROM generos"
         elif tabela_selecionada == "Faculdades":
@@ -169,10 +165,10 @@ def render_viewer():
                 if tabela_selecionada == "Profissionais":
                     col1, col2 = st.columns(2)
                     with col1:
-                        if 'profissao' in df.columns:
-                            st.write("Distribuição por Profissão")
-                            prof_counts = df['profissao'].value_counts()
-                            st.bar_chart(prof_counts)
+                        if 'cargo_atual' in df.columns:
+                            st.write("Distribuição por Cargo")
+                            cargo_counts = df['cargo_atual'].value_counts()
+                            st.bar_chart(cargo_counts)
                     with col2:
                         if 'idade' in df.columns:
                             st.write("Distribuição por Idade")
@@ -212,6 +208,7 @@ def render_viewer():
 
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
+
 
 def render_query():
     st.markdown(QUERY_STYLES, unsafe_allow_html=True)
@@ -257,7 +254,7 @@ def render_query():
             placeholder="Ex: Busque profissionais formados em Engenharia que falam inglês fluente..."
         )
 
-        # Botão de consulta
+        # Botão de consulta e processamento
         if st.button("🔍 Consultar", type="primary"):
             try:
                 with st.spinner("Gerando consulta..."):
@@ -346,14 +343,10 @@ def render_query():
                     "descrição": "Informações principais dos profissionais",
                     "colunas": [
                         "id", "nome", "email", "telefone", "endereco", "portfolio_url",
-                        "linkedin_url", "github_url", "profissao_id", "faculdade_id",
+                        "linkedin_url", "github_url", "cargo_atual", "faculdade_id",
                         "genero_id", "idioma_principal_id", "nivel_idioma_principal",
                         "idade", "pretensao_salarial", "disponibilidade", "tipo_contrato"
                     ]
-                },
-                "profissoes": {
-                    "descrição": "Cadastro de profissões",
-                    "colunas": ["id", "nome", "descricao"]
                 },
                 "generos": {
                     "descrição": "Tipos de gênero",
@@ -381,11 +374,11 @@ def render_query():
             tabelas_areas = {
                 "areas_interesse": {
                     "descrição": "Áreas de interesse profissional",
-                    "colunas": ["id", "nome", "descricao"]
+                    "colunas": ["id", "nome", "descricao", "total_uso", "termos_similares"]
                 },
                 "areas_atuacao": {
                     "descrição": "Áreas de atuação profissional",
-                    "colunas": ["id", "nome", "descricao"]
+                    "colunas": ["id", "nome", "descricao", "total_uso", "termos_similares"]
                 }
             }
 
@@ -447,13 +440,13 @@ def render_query():
             2. **Use os nomes das tabelas**: Consulte a estrutura acima
             3. **Combine informações**: Relacione dados de diferentes tabelas
             4. **Filtre resultados**: Especifique condições para filtrar os dados
-            
+
             ### Exemplos de consultas complexas:
             - "Encontre profissionais com mais de 3 anos de experiência em desenvolvimento que falam inglês fluente"
             - "Liste as áreas de atuação com maior média salarial pretendida"
             - "Mostre as faculdades que formaram mais profissionais em tecnologia"
             - "Busque profissionais com experiência em Python e certificação em AWS"
-            
+
             ### Dicas para filtros:
             - Use termos específicos como "desenvolvimento", "python", "aws"
             - Especifique anos de experiência quando relevante
@@ -461,16 +454,24 @@ def render_query():
             - Considere incluir níveis de proficiência em idiomas
             """)
 
+
+def render_dashboard():
+    st.markdown(VIEWER_STYLES, unsafe_allow_html=True)
+    st.header("Dashboard de Análise")
+
+    try:
+        data_service = DataService()
+        dados = data_service.buscar_
+
         # Exemplos de SQL
         with st.expander("📝 Exemplos de SQL", expanded=True):
             st.markdown("""
             ### Consultas SQL de Exemplo:
-            
+
             1. **Busca básica de profissionais:**
             ```sql
-            SELECT p.nome, prof.nome as profissao, g.nome as genero
+            SELECT p.nome, p.cargo_atual, g.nome as genero
             FROM profissionais p
-            LEFT JOIN profissoes prof ON p.profissao_id = prof.id
             LEFT JOIN generos g ON p.genero_id = g.id
             ```
 
@@ -494,72 +495,9 @@ def render_query():
             ```
             """)
 
-def render_dashboard():
-    st.markdown(VIEWER_STYLES, unsafe_allow_html=True)
-    st.header("Dashboard de Análise")
-
-    try:
-        data_service = DataService()
-        dados = data_service.buscar_profissionais()
-
-        if dados:
-            df = pd.DataFrame(dados)
-
-            # Métricas Gerais
-            st.subheader("Métricas Gerais")
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                st.metric("Total de Profissionais", len(df))
-            with col2:
-                st.metric("Idade Média", f"{df['idade'].mean():.1f} anos")
-            with col3:
-                st.metric("Profissões Únicas", df['profissao'].nunique())
-            with col4:
-                media_exp = df['experiencia'].mean() if 'experiencia' in df else 0
-                st.metric("Média de Experiência", f"{media_exp:.1f} anos")
-
-            # Gráficos
-            st.subheader("Análises")
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.write("Distribuição por Profissão")
-                prof_counts = df['profissao'].value_counts().head(10)
-                st.bar_chart(prof_counts)
-
-            with col2:
-                st.write("Distribuição por Nível de Experiência")
-                if 'experiencia' in df:
-                    exp_bins = pd.cut(df['experiencia'], bins=[0, 2, 5, 8, 100],
-                                    labels=['0-2 anos', '2-5 anos', '5-8 anos', '8+ anos'])
-                    st.bar_chart(exp_bins.value_counts())
-
-            # Tabelas Detalhadas
-            st.subheader("Dados Detalhados")
-
-            tab1, tab2, tab3 = st.tabs(["📊 Profissionais", "🎯 Áreas", "🌎 Idiomas"])
-
-            with tab1:
-                st.dataframe(df)
-
-            with tab2:
-                if 'areas_atuacao' in df:
-                    areas_df = pd.DataFrame([
-                        area.split(',') for area in df['areas_atuacao'].dropna()
-                    ]).stack().value_counts()
-                    st.bar_chart(areas_df)
-
-            with tab3:
-                if 'idiomas' in df:
-                    idiomas_df = pd.DataFrame([
-                        idioma.split(',') for idioma in df['idiomas'].dropna()
-                    ]).stack().value_counts()
-                    st.bar_chart(idiomas_df)
-
-        else:
-            st.info("Nenhum dado encontrado para análise.")
+        # Tabelas Principais
+        with st.expander("📊 Tabelas Principais", expanded=True):
+            st.write(dados)
 
     except Exception as e:
-        st.error(f"Erro ao carregar dashboard: {e}")
+        st.error(f"Erro ao carregar dados: {e}")

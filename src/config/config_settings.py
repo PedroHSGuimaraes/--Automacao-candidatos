@@ -28,20 +28,7 @@ CREATE TABLE IF NOT EXISTS generos (
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Profissões (atualizada)
-CREATE TABLE IF NOT EXISTS profissoes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    nome VARCHAR(255),
-    descricao TEXT,
-    total_uso INT DEFAULT 0,
-    ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    termos_similares TEXT,
-    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_nome (nome),
-    FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Tabela de Áreas de Interesse (atualizada)
+-- Tabela de Áreas de Interesse
 CREATE TABLE IF NOT EXISTS areas_interesse (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -54,7 +41,7 @@ CREATE TABLE IF NOT EXISTS areas_interesse (
     FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Áreas de Atuação (atualizada)
+-- Tabela de Áreas de Atuação
 CREATE TABLE IF NOT EXISTS areas_atuacao (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -66,6 +53,7 @@ CREATE TABLE IF NOT EXISTS areas_atuacao (
     INDEX idx_nome (nome),
     FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Tabela de Faculdades
 CREATE TABLE IF NOT EXISTS faculdades (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -73,8 +61,8 @@ CREATE TABLE IF NOT EXISTS faculdades (
     cidade VARCHAR(255),
     estado VARCHAR(255),
     pais VARCHAR(255),
-    tipo VARCHAR(50),  -- pública, privada, etc
-    ranking INT,       -- posição em rankings
+    tipo VARCHAR(50),
+    ranking INT,
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -96,7 +84,7 @@ CREATE TABLE IF NOT EXISTS profissionais (
     portfolio_url VARCHAR(255),
     linkedin_url VARCHAR(255),
     github_url VARCHAR(255),
-    profissao_id INT,
+    cargo_atual VARCHAR(255),
     faculdade_id INT,
     genero_id INT,
     idioma_principal_id INT,
@@ -111,7 +99,6 @@ CREATE TABLE IF NOT EXISTS profissionais (
     observacoes_ia JSON,
     campos_dinamicos JSON,
     habilidades JSON DEFAULT NULL,
-    FOREIGN KEY (profissao_id) REFERENCES profissoes(id),
     FOREIGN KEY (faculdade_id) REFERENCES faculdades(id),
     FOREIGN KEY (genero_id) REFERENCES generos(id),
     FOREIGN KEY (idioma_principal_id) REFERENCES idiomas(id)
@@ -134,7 +121,7 @@ CREATE TABLE IF NOT EXISTS profissionais_idiomas (
 CREATE TABLE IF NOT EXISTS profissionais_areas_interesse (
     profissional_id INT,
     area_interesse_id INT,
-    nivel_interesse INT,  -- 1 a 5
+    nivel_interesse INT,
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (profissional_id, area_interesse_id),
     FOREIGN KEY (profissional_id) REFERENCES profissionais(id),
