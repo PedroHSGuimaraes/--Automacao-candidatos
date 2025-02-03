@@ -1,5 +1,6 @@
 import openai
 import json
+import re
 from datetime import datetime
 
 from src.config.config_settings import (
@@ -9,7 +10,6 @@ from src.config.config_settings import (
     DISPONIBILIDADE,
     DB_CONFIG
 )
-
 class GPTService:
     def __init__(self):
         openai.api_key = OPENAI_KEY
@@ -301,6 +301,12 @@ class GPTService:
                     'devops': r'devops|dev[-\s]?ops|engenheiro\s*devops',
                     'qa': r'qa|quality\s*assurance|teste\s*de\s*software'
                 },
+                'logistica': {
+                    'motorista': r'motorist[ao]|condutor[a]?|operator\s*de\s*veículos?',
+                    'transportador': r'transportador[a]?|entregador[a]?',
+                    'operador': r'operador[a]?\s*de\s*(máquina|empilhadeira|guindaste)',
+                    'conferente': r'conferente|auxiliar\s*de\s*logística'
+                },
                 'saude': {
                     'medico': r'médic[oa]|dr\.|doutor[a]?',
                     'enfermeiro': r'enfermeir[oa]|técnic[oa]\s*de\s*enfermagem',
@@ -330,12 +336,12 @@ class GPTService:
             # Se não encontrar padrão específico, cria um mais preciso com as palavras-chave
             if not padrao_encontrado:
                 termos = prompt_lower.split()
-                palavras_ignorar = {'me', 'de', 'mostre', 'liste', 'quero', 'preciso', 'somente',
-                                    'apenas', 'pessoas', 'profissionais', 'interessadas', 'interessados',
-                                    'em', 'com', 'e', 'ou', 'que', 'tem', 'têm', 'possuem', 'são'}
+                palavras_ignorar = {
+                    'me', 'de', 'mostre', 'liste', 'quero', 'preciso', 'somente',
+                    'apenas', 'pessoas', 'profissionais', 'interessadas', 'interessados',
+                    'em', 'com', 'e', 'ou', 'que', 'tem', 'têm', 'possuem', 'são', 'como'
+                }
                 termos_busca = [termo for termo in termos if termo not in palavras_ignorar]
-
-                # Cria padrão mais específico juntando os termos
                 padrao_encontrado = r'\b(' + '|'.join(termos_busca) + r')\b'
 
             # Monta a query base
@@ -347,7 +353,7 @@ class GPTService:
                 p.github_url,
                 p.linkedin_url,
                 p.portfolio_url,
-                prof.nome as profissao,
+                p.cargo_atual,
                 MAX(paa.anos_experiencia) as anos_experiencia,
                 GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
                 GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
@@ -356,7 +362,6 @@ class GPTService:
                 p.habilidades,
                 GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
             FROM profissionais p
-            LEFT JOIN profissoes prof ON p.profissao_id = prof.id
             LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
             LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
             LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
@@ -364,14 +369,14 @@ class GPTService:
             LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
             LEFT JOIN idiomas i ON pi.idioma_id = i.id
             WHERE (
-                prof.nome REGEXP '{0}'
-                OR paa.ultimo_cargo REGEXP '{0}'
-                OR aa.nome REGEXP '{0}'
-                OR ai.nome REGEXP '{0}'
+                LOWER(p.cargo_atual) REGEXP '{0}'
+                OR LOWER(paa.ultimo_cargo) REGEXP '{0}'
+                OR LOWER(aa.nome) REGEXP '{0}'
+                OR LOWER(ai.nome) REGEXP '{0}'
                 OR LOWER(paa.descricao_atividades) REGEXP '{0}'
                 OR JSON_CONTAINS(LOWER(p.habilidades), '"{0}"')
             )
-            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, prof.nome, p.habilidades
+            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, p.cargo_atual, p.habilidades
             """.format(padrao_encontrado)
 
             return query_base
@@ -387,7 +392,7 @@ class GPTService:
                 p.github_url,
                 p.linkedin_url,
                 p.portfolio_url,
-                prof.nome as profissao,
+                p.cargo_atual,
                 MAX(paa.anos_experiencia) as anos_experiencia,
                 GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
                 GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
@@ -396,13 +401,11 @@ class GPTService:
                 p.habilidades,
                 GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
             FROM profissionais p
-            LEFT JOIN profissoes prof ON p.profissao_id = prof.id
             LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
             LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
             LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
             LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
             LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
             LEFT JOIN idiomas i ON pi.idioma_id = i.id
-            WHERE TRUE
-            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, prof.nome, p.habilidades
+            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, p.cargo_atual, p.habilidades
             """
