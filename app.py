@@ -1,6 +1,7 @@
 import streamlit as st
 from src.ui.ui_components import render_query, render_viewer, render_upload
 from src.config.config_settings import UI_CONFIG
+from src.services.services_gpt import GPTService
 
 st.set_page_config(
     page_title="Analisador de Currículos",
@@ -17,6 +18,14 @@ def main():
     # Menu lateral
     with st.sidebar:
         st.header("Menu")
+
+        # Seleção do modelo de IA
+        modelo_ia = st.selectbox(
+            "Modelo de IA",
+            ["GPT-4", "Gemini"],
+            help="Selecione o modelo de IA para análise"
+        )
+
         menu = st.radio(
             "Escolha uma opção",
             ["Upload de CVs", "Visualizar Dados", "Consultas Personalizadas"]
@@ -35,7 +44,8 @@ def main():
         - Consultas personalizadas
         """)
 
-
+    # Instanciação do serviço GPT
+    gpt_service = GPTService(model="gpt" if modelo_ia == "GPT-4" else "gemini")
 
     # Renderiza o componente selecionado
     if menu == "Upload de CVs":
