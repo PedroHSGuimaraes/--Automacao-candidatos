@@ -2,7 +2,7 @@ import streamlit as st
 
 # Configurações do OpenAI
 OPENAI_KEY = st.secrets["openai_key"]
-
+GEMINI_KEY = st.secrets["gemini_key"]
 # Configurações do Banco de Dados
 DB_CONFIG = {
     'host': st.secrets["mysql_host"],
