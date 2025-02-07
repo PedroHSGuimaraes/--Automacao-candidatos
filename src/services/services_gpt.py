@@ -165,77 +165,107 @@ class GPTService:
 
     def gerar_query_sql(self, prompt, schema=None):
         try:
-            prompt_lower = prompt.lower()
-            termos = prompt_lower.split()
+            # 1. Primeiro fazemos análise prévia do banco
+            analise_previa = """
+            SELECT 
+                (SELECT GROUP_CONCAT(DISTINCT cargo_atual) FROM profissionais WHERE cargo_atual IS NOT NULL) as cargos,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM areas_atuacao) as areas,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM idiomas) as idiomas,
+                (SELECT GROUP_CONCAT(DISTINCT nivel) FROM profissionais_idiomas) as niveis_idiomas,
+                (SELECT GROUP_CONCAT(DISTINCT ultimo_cargo) FROM profissionais_areas_atuacao) as ultimos_cargos
+            """
 
-            # Remove palavras comuns que não ajudam na busca
-            palavras_ignorar = {
-                'me', 'de', 'mostre', 'liste', 'quero', 'preciso', 'somente',
-                'apenas', 'pessoas', 'profissionais', 'interessadas', 'interessados',
-                'em', 'com', 'e', 'ou', 'que', 'tem', 'têm', 'possuem', 'são', 'como',
-                'quem', 'tem', 'experiência', 'experiencia', 'trabalha', 'trabalhou'
-            }
+            dados_contexto = self.data_service.executar_query(analise_previa)
 
-            termos_busca = [termo for termo in termos if termo not in palavras_ignorar]
+            # 2. Consultamos a IA com o schema detalhado
+            if self.model == "gpt":
+                response = openai.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"""Você é um especialista em SQL. Use EXATAMENTE estes nomes de tabelas e colunas:
 
-            # Constrói a condição de busca mais específica
-            padrao_regexp = []
-            for i in range(len(termos_busca)):
-                # Tenta combinar termos adjacentes para busca mais precisa
-                if i < len(termos_busca) - 1:
-                    termo_composto = f"{termos_busca[i]}.*{termos_busca[i + 1]}"
-                    padrao_regexp.append(termo_composto)
-                padrao_regexp.append(termos_busca[i])
+                            profissionais (p):
+                            - id, nome, email, cargo_atual, github_url, linkedin_url, portfolio_url, habilidades
 
-            padrao_final = '|'.join(padrao_regexp)
+                            areas_atuacao (aa):
+                            - id, nome
 
-            query = """
-            SELECT DISTINCT
-                p.id,
-                p.nome,
-                p.email,
-                p.github_url,
-                p.linkedin_url,
-                p.portfolio_url,
-                p.cargo_atual,
-                MAX(paa.anos_experiencia) as anos_experiencia,
-                GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
-                GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
-                GROUP_CONCAT(DISTINCT aa.nome) as areas_atuacao,
-                GROUP_CONCAT(DISTINCT ai.nome) as areas_interesse,
-                p.habilidades,
-                GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
-            FROM profissionais p
-            LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
-            LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
-            LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
-            LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
-            LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
-            LEFT JOIN idiomas i ON pi.idioma_id = i.id
-            WHERE (
-                (
-                    LOWER(p.cargo_atual) REGEXP '{0}'
-                    OR LOWER(paa.ultimo_cargo) REGEXP '{0}'
-                    OR LOWER(aa.nome) REGEXP '{0}'
-                    OR LOWER(paa.descricao_atividades) REGEXP '{0}'
+                            profissionais_areas_atuacao (paa):
+                            - profissional_id, area_atuacao_id, anos_experiencia, ultimo_cargo, ultima_empresa
+
+                            areas_interesse (ai):
+                            - id, nome
+
+                            profissionais_areas_interesse (pai):
+                            - profissional_id, area_interesse_id
+
+                            idiomas (i):
+                            - id, nome
+
+                            profissionais_idiomas (pi):
+                            - profissional_id, idioma_id, nivel
+
+                            Dados existentes no banco:
+                            {dados_contexto[0] if dados_contexto else ''}"""
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Gere APENAS uma query MySQL para: {prompt}
+                            Use SOMENTE os nomes de colunas especificados acima.
+                            Retorne APENAS a query, sem explicações."""
+                        }
+                    ],
+                    temperature=0.1
                 )
-                AND (
-                    LOWER(p.cargo_atual) LIKE '%{1}%'
-                    OR LOWER(paa.ultimo_cargo) LIKE '%{1}%'
-                    OR LOWER(aa.nome) LIKE '%{1}%'
-                    OR LOWER(paa.descricao_atividades) LIKE '%{1}%'
-                    OR JSON_UNQUOTE(p.habilidades) LIKE '%{1}%'
-                )
-            )
-            GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, p.cargo_atual, p.habilidades
-            HAVING 
-                LOWER(ultimo_cargo) LIKE '%{1}%'
-                OR LOWER(areas_atuacao) LIKE '%{1}%'
-            ORDER BY anos_experiencia DESC
-            """.format(padrao_final, termos_busca[-1] if termos_busca else '')
+                query = response.choices[0].message.content.strip()
+            else:
+                # Similar para Gemini
+                response = self.gemini_model.generate_content(f"""[schema detalhado e prompt]""")
+                query = response.text.strip()
+
+            # Limpa a query
+            query = query.replace('```sql', '').replace('```', '').strip()
+
+            # Valida se a query é segura
+            query_lower = query.lower()
+            if any(word in query_lower for word in ['drop', 'delete', 'update', 'insert', 'truncate']):
+                raise ValueError("Query não permitida")
+
+            # Se nenhuma query válida for gerada, usa a query padrão
+            if not query or 'select' not in query_lower:
+                return self._get_query_padrao()
 
             return query
 
         except Exception as e:
             print(f"Erro ao gerar query: {e}")
             return self._get_query_padrao()
+
+    def _get_query_padrao(self):
+        return """
+        SELECT DISTINCT
+            p.id,
+            p.nome,
+            p.email,
+            p.github_url,
+            p.linkedin_url,
+            p.portfolio_url,
+            p.cargo_atual,
+            MAX(paa.anos_experiencia) as anos_experiencia,
+            GROUP_CONCAT(DISTINCT paa.ultimo_cargo) as ultimo_cargo,
+            GROUP_CONCAT(DISTINCT paa.ultima_empresa) as ultima_empresa,
+            GROUP_CONCAT(DISTINCT aa.nome) as areas_atuacao,
+            GROUP_CONCAT(DISTINCT ai.nome) as areas_interesse,
+            p.habilidades,
+            GROUP_CONCAT(DISTINCT i.nome ORDER BY i.nome SEPARATOR ', ') as idiomas
+        FROM profissionais p
+        LEFT JOIN profissionais_areas_atuacao paa ON p.id = paa.profissional_id
+        LEFT JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
+        LEFT JOIN profissionais_areas_interesse pai ON p.id = pai.profissional_id
+        LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
+        LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
+        LEFT JOIN idiomas i ON pi.idioma_id = i.id
+        GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, p.cargo_atual, p.habilidades
+        """
