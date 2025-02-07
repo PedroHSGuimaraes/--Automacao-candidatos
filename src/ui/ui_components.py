@@ -18,7 +18,7 @@ def render_upload():
             "Selecione os PDFs dos currículos",
             type="pdf",
             accept_multiple_files=True,
-            help="Você pode selecionar múltiplos arquivos PDF"
+            help="Você pode selecionar múltiplos arquivos PDF ou um único PDF com vários currículos"
         )
 
         if arquivos:
@@ -29,24 +29,79 @@ def render_upload():
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            for idx, arquivo in enumerate(arquivos):
-                progress = (idx + 1) / len(arquivos)
-                progress_bar.progress(progress)
-                status_text.text(f"Processando {arquivo.name}... ({idx + 1}/{len(arquivos)})")
+            total_processado = 0
+            total_curriculos = 0
 
+            # Primeiro conta o total de currículos
+            for arquivo in arquivos:
                 try:
-                    with st.spinner(f'Analisando {arquivo.name}...'):
-                        texto_pdf = pdf_service.extrair_texto(arquivo)
-                        dados = gpt_service.analisar_curriculo(texto_pdf)
-                        data_service.salvar_profissional(dados, texto_pdf)
-                        st.success(f"✅ {arquivo.name} processado com sucesso")
+                    curriculos = pdf_service.extrair_curriculos_multiplos(arquivo)
+                    total_curriculos += len(curriculos)
                 except Exception as e:
-                    st.error(f"❌ Erro ao processar {arquivo.name}: {e}")
+                    st.error(f"Erro ao analisar {arquivo.name}: {e}")
+                    continue
+
+            # Processa cada arquivo
+            for arquivo in arquivos:
+                try:
+                    # Extrai currículos do PDF atual
+                    curriculos = pdf_service.extrair_curriculos_multiplos(arquivo)
+
+                    # Mostra quantidade de currículos encontrados no arquivo
+                    st.info(f"Encontrados {len(curriculos)} currículos em {arquivo.name}")
+
+                    # Cria uma tabela para mostrar os candidatos encontrados
+                    if curriculos:
+                        st.write("Candidatos identificados neste arquivo:")
+                        dados_candidatos = []
+                        for info, _ in curriculos:
+                            dados_candidatos.append({
+                                "Nome": info.get('nome', 'Não identificado'),
+                                "Email": info.get('email', 'Não informado'),
+                                "Telefone": info.get('telefone', 'Não informado')
+                            })
+                        st.table(dados_candidatos)
+
+                    # Processa cada currículo
+                    for idx, (info, texto_cv) in enumerate(curriculos, 1):
+                        total_processado += 1
+                        progress = total_processado / total_curriculos
+                        progress_bar.progress(progress)
+
+                        nome_candidato = info.get('nome', f'Candidato {idx}')
+                        status_text.text(
+                            f"Processando currículo de {nome_candidato} ({idx}/{len(curriculos)}) do arquivo {arquivo.name}")
+
+                        try:
+                            with st.spinner(f'Analisando currículo de {nome_candidato}...'):
+                                dados = gpt_service.analisar_curriculo(texto_cv)
+
+                                # Atualiza dados com informações extraídas do PDF
+                                if not dados['profissional']['nome'] and info.get('nome'):
+                                    dados['profissional']['nome'] = info['nome']
+                                if not dados['profissional']['email'] and info.get('email'):
+                                    dados['profissional']['email'] = info['email']
+                                if not dados['profissional']['telefone'] and info.get('telefone'):
+                                    dados['profissional']['telefone'] = info['telefone']
+
+                                data_service.salvar_profissional(dados, texto_cv)
+                                st.success(f"✅ Currículo de {nome_candidato} processado com sucesso")
+                        except Exception as e:
+                            st.error(f"❌ Erro ao processar currículo de {nome_candidato}: {e}")
+
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar arquivo {arquivo.name}: {e}")
 
             progress_bar.empty()
             status_text.empty()
-            st.success(f"Processamento concluído! {len(arquivos)} arquivo(s) processado(s).")
 
+            # Resumo final
+            st.markdown("### Resumo do Processamento")
+            st.markdown(f"""
+            - Total de arquivos processados: {len(arquivos)}
+            - Total de currículos encontrados: {total_curriculos}
+            - Total de currículos processados com sucesso: {total_processado}
+            """)
 
 def render_viewer():
     st.markdown(VIEWER_STYLES, unsafe_allow_html=True)
