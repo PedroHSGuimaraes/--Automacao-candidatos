@@ -167,12 +167,18 @@ class GPTService:
         try:
             # 1. Primeiro fazemos análise prévia do banco
             analise_previa = """
-            SELECT 
+            SELECT
                 (SELECT GROUP_CONCAT(DISTINCT cargo_atual) FROM profissionais WHERE cargo_atual IS NOT NULL) as cargos,
-                (SELECT GROUP_CONCAT(DISTINCT nome) FROM areas_atuacao) as areas,
-                (SELECT GROUP_CONCAT(DISTINCT nome) FROM idiomas) as idiomas,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM areas_atuacao) as areas_atuacao_nomes,
+                (SELECT GROUP_CONCAT(DISTINCT descricao) FROM areas_atuacao) as areas_atuacao_descricoes,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM idiomas) as idiomas_nomes,
+                (SELECT GROUP_CONCAT(DISTINCT codigo) FROM idiomas) as idiomas_codigos,
                 (SELECT GROUP_CONCAT(DISTINCT nivel) FROM profissionais_idiomas) as niveis_idiomas,
-                (SELECT GROUP_CONCAT(DISTINCT ultimo_cargo) FROM profissionais_areas_atuacao) as ultimos_cargos
+                (SELECT GROUP_CONCAT(DISTINCT ultimo_cargo) FROM profissionais_areas_atuacao) as ultimos_cargos,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM generos) as generos_nomes,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM areas_interesse) as areas_interesse_nomes,
+                (SELECT GROUP_CONCAT(DISTINCT descricao) FROM areas_interesse) as areas_interesse_descricoes,
+                (SELECT GROUP_CONCAT(DISTINCT nome) FROM faculdades) as faculdades_nomes
             """
 
             dados_contexto = self.data_service.executar_query(analise_previa)
@@ -186,26 +192,32 @@ class GPTService:
                             "role": "system",
                             "content": f"""Você é um especialista em SQL. Use EXATAMENTE estes nomes de tabelas e colunas:
 
-                            profissionais (p):
-                            - id, nome, email, cargo_atual, github_url, linkedin_url, portfolio_url, habilidades
+                            profissionais AS p:
+                            - id, nome, email, cargo_atual, github_url, linkedin_url, portfolio_url, habilidades, faculdade_id, genero_id, idioma_principal_id, nivel_idioma_principal, pdf_curriculo, idade, pretensao_salarial, disponibilidade, tipo_contrato, data_criacao, ultima_atualizacao, observacoes_ia, campos_dinamicos, habilidades
 
-                            areas_atuacao (aa):
-                            - id, nome
+                            areas_atuacao AS aa:
+                            - id, nome, descricao, total_uso, ultima_atualizacao, termos_similares, data_criacao
 
-                            profissionais_areas_atuacao (paa):
-                            - profissional_id, area_atuacao_id, anos_experiencia, ultimo_cargo, ultima_empresa
+                            profissionais_areas_atuacao AS paa:
+                            - profissional_id, area_atuacao_id, anos_experiencia, ultimo_cargo, ultima_empresa, data_inicio, data_fim, descricao_atividades, data_criacao
 
-                            areas_interesse (ai):
-                            - id, nome
+                            areas_interesse AS ai:
+                            - id, nome, descricao, total_uso, ultima_atualizacao, termos_similares, data_criacao
 
-                            profissionais_areas_interesse (pai):
-                            - profissional_id, area_interesse_id
+                            profissionais_areas_interesse AS pai:
+                            - profissional_id, area_interesse_id, nivel_interesse, data_criacao
 
-                            idiomas (i):
-                            - id, nome
+                            idiomas AS i:
+                            - id, nome, codigo, data_criacao
 
-                            profissionais_idiomas (pi):
-                            - profissional_id, idioma_id, nivel
+                            profissionais_idiomas AS pi:
+                            - profissional_id, idioma_id, nivel, certificacao, data_certificacao, data_criacao
+
+                            faculdades AS f:
+                            - id, nome, cidade, estado, pais, tipo, ranking, data_criacao
+
+                            generos AS g:
+                            - id, nome, descricao, data_criacao
 
                             Dados existentes no banco:
                             {dados_contexto[0] if dados_contexto else ''}"""
@@ -214,7 +226,8 @@ class GPTService:
                             "role": "user",
                             "content": f"""Gere APENAS uma query MySQL para: {prompt}
                             Use SOMENTE os nomes de colunas especificados acima.
-                            Retorne APENAS a query, sem explicações."""
+                            Use a sintaxe AS para aliases de tabela.
+                            Retorne APENAS a query MYSQL, sem explicações."""
                         }
                     ],
                     temperature=0.1
@@ -267,5 +280,6 @@ class GPTService:
         LEFT JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
         LEFT JOIN profissionais_idiomas pi ON p.id = pi.profissional_id
         LEFT JOIN idiomas i ON pi.idioma_id = i.id
+        WHERE p.linkedin_url IS NOT NULL AND p.linkedin_url != ''
         GROUP BY p.id, p.nome, p.email, p.github_url, p.linkedin_url, p.portfolio_url, p.cargo_atual, p.habilidades
         """
