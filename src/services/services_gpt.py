@@ -30,6 +30,101 @@ class GPTService:
         }
         self.data_service = DataService()
 
+    def _get_estrutura_vazia(self):
+        """Retorna uma estrutura padrão vazia para o caso de falha na análise do currículo."""
+        return {
+            'profissional': {
+                'nome': '',
+                'email': '',
+                'telefone': '',
+                'endereco': '',
+                'portfolio_url': '',
+                'linkedin_url': '',
+                'github_url': '',
+                'genero': 'não identificado',
+                'idade': None,
+                'pretensao_salarial': None,
+                'disponibilidade': 'imediata',
+                'tipo_contrato': 'clt',
+                'cargo_atual': '',
+                'observacoes_ia': ['dados não processados', 'necessita análise', 'requer validação'],
+                'campos_dinamicos': {},
+                'habilidades': [],
+            },
+            'faculdade': {
+                'nome': '',
+                'cidade': '',
+                'estado': '',
+                'pais': 'brasil',
+                'tipo': ''
+            },
+            'idiomas': [],
+            'areas_interesse': [],
+            'areas_atuacao': []
+        }
+
+    def _converter_strings_para_lowercase(self, obj):
+
+        if isinstance(obj, str):
+            return obj.lower()
+        elif isinstance(obj, dict):
+            return {key: self._converter_strings_para_lowercase(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._converter_strings_para_lowercase(item) for item in obj]
+        return obj
+
+    def _validar_dados(self, dados):
+
+        estrutura_padrao = self._get_estrutura_vazia()
+        dados_validados = {}
+
+        try:
+            profissional = {
+                'nome': str(dados.get('nome', '')),
+                'email': str(dados.get('email', '')),
+                'telefone': str(dados.get('telefone', '')),
+                'endereco': str(dados.get('endereco', '')),
+                'portfolio_url': str(dados.get('portfolio_url', '')),
+                'linkedin_url': str(dados.get('linkedin_url', '')),
+                'github_url': str(dados.get('github_url', '')),
+                'genero': dados.get('genero', 'não identificado').lower(),
+                'idade': dados.get('idade') if isinstance(dados.get('idade'), (int, float)) else None,
+                'pretensao_salarial': dados.get('pretensao_salarial') if isinstance(dados.get('pretensao_salarial'),
+                                                                                    (int, float)) else None,
+                'disponibilidade': dados.get('disponibilidade', 'imediata'),
+                'tipo_contrato': dados.get('tipo_contrato', 'clt'),
+                'cargo_atual': dados.get('cargo_atual', ''),
+                'observacoes_ia': dados.get('observacoes_ia', [])[:3] or ['perfil em análise', 'necessita validação',
+                                                                          'requer mais detalhes'],
+                'habilidades': dados.get('habilidades', []) if isinstance(dados.get('habilidades'), list) else [],
+                'campos_dinamicos': dados.get('campos_dinamicos', {}) or {'observacoes': 'dados em análise'}
+            }
+
+            faculdade = {
+                'nome': str(dados.get('faculdade', {}).get('nome', '')),
+                'cidade': str(dados.get('faculdade', {}).get('cidade', '')),
+                'estado': str(dados.get('faculdade', {}).get('estado', '')),
+                'pais': str(dados.get('faculdade', {}).get('pais', 'brasil')),
+                'tipo': str(dados.get('faculdade', {}).get('tipo', ''))
+            }
+
+            idiomas = dados.get('idiomas', [])
+            areas_interesse = dados.get('areas_interesse', [])
+            areas_atuacao = dados.get('areas_atuacao', [])
+
+            dados_validados = {
+                'profissional': profissional,
+                'faculdade': faculdade,
+                'idiomas': idiomas,
+                'areas_interesse': areas_interesse,
+                'areas_atuacao': areas_atuacao
+            }
+
+            return dados_validados
+
+        except Exception as e:
+            print(f"Erro na validação: {e}")
+            return estrutura_padrao
     def analisar_curriculo(self, texto):
         try:
             if self.model == "gpt":
@@ -91,7 +186,7 @@ class GPTService:
                                 "areas_atuacao": [
                                     {{
                                         "nome": "string",
-                                        "anos_experiencia": 0,
+                                        "anos_experiencia":  0,
                                         "ultimo_cargo": "string",
                                         "ultima_empresa": "string",
                                         "descricao_atividades": "string",
@@ -163,9 +258,11 @@ class GPTService:
             print(f"Erro na análise do currículo: {e}")
             return self._get_estrutura_vazia()
 
+
+
     def gerar_query_sql(self, prompt, schema=None):
         try:
-            # 1. Primeiro fazemos análise prévia do banco
+
             analise_previa = """
             SELECT
                 (SELECT GROUP_CONCAT(DISTINCT cargo_atual) FROM profissionais WHERE cargo_atual IS NOT NULL) as cargos,
@@ -183,7 +280,6 @@ class GPTService:
 
             dados_contexto = self.data_service.executar_query(analise_previa)
 
-            # 2. Consultamos a IA com o schema detalhado
             if self.model == "gpt":
                 response = openai.chat.completions.create(
                     model="gpt-4o-mini",
@@ -234,19 +330,19 @@ class GPTService:
                 )
                 query = response.choices[0].message.content.strip()
             else:
-                # Similar para Gemini
+
                 response = self.gemini_model.generate_content(f"""[schema detalhado e prompt]""")
                 query = response.text.strip()
 
-            # Limpa a query
+
             query = query.replace('```sql', '').replace('```', '').strip()
 
-            # Valida se a query é segura
+
             query_lower = query.lower()
             if any(word in query_lower for word in ['drop', 'delete', 'update', 'insert', 'truncate']):
                 raise ValueError("Query não permitida")
 
-            # Se nenhuma query válida for gerada, usa a query padrão
+
             if not query or 'select' not in query_lower:
                 return self._get_query_padrao()
 

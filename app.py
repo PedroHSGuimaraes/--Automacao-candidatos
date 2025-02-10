@@ -12,14 +12,14 @@ st.set_page_config(
 
 
 def main():
-    # Título principal
+
     st.title("📄 Analisador de Currículos")
 
-    # Menu lateral
+
     with st.sidebar:
         st.header("Menu")
 
-        # Seleção do modelo de IA
+
         modelo_ia = st.selectbox(
             "Modelo de IA",
             ["GPT-4", "Gemini"],
@@ -31,7 +31,7 @@ def main():
             ["Upload de CVs", "Visualizar Dados", "Consultas Personalizadas"]
         )
 
-        # Informações adicionais
+
         st.sidebar.markdown("---")
         st.sidebar.info("""
         ### Sobre
@@ -44,10 +44,10 @@ def main():
         - Consultas personalizadas
         """)
 
-    # Instanciação do serviço GPT
+
     gpt_service = GPTService(model="gpt" if modelo_ia == "GPT-4" else "gemini")
 
-    # Renderiza o componente selecionado
+
     if menu == "Upload de CVs":
         render_upload()
     elif menu == "Visualizar Dados":
@@ -55,7 +55,6 @@ def main():
     elif menu == "Consultas Personalizadas":
         render_query()
 
-    # Footer
     st.markdown("---")
     st.markdown(
         """

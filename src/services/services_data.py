@@ -133,7 +133,7 @@ class DataService:
         try:
             nome = area['nome'].lower().strip()
 
-            # Primeiro busca área exata
+
             self.cursor.execute(
                 "SELECT id FROM areas_interesse WHERE LOWER(nome) = %s",
                 (nome,)
@@ -142,7 +142,7 @@ class DataService:
 
             if resultado:
                 area_id = resultado['id']
-                # Atualiza métricas de uso
+
                 self.cursor.execute("""
                     UPDATE areas_interesse 
                     SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -151,7 +151,7 @@ class DataService:
                     WHERE id = %s
                 """, (area.get('termos_relacionados', ''), area_id))
             else:
-                # Busca similares
+
                 self.cursor.execute("""
                     SELECT id, nome
                     FROM areas_interesse 
@@ -165,7 +165,7 @@ class DataService:
                 similar = self.cursor.fetchone()
                 if similar:
                     area_id = similar['id']
-                    # Atualiza área existente
+
                     self.cursor.execute("""
                         UPDATE areas_interesse 
                         SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -174,7 +174,7 @@ class DataService:
                         WHERE id = %s
                     """, (nome, area_id))
                 else:
-                    # Cria nova área
+
                     self.cursor.execute("""
                         INSERT INTO areas_interesse 
                         (nome, descricao, termos_similares, total_uso) 
@@ -186,7 +186,7 @@ class DataService:
                     ))
                     area_id = self.cursor.lastrowid
 
-            # Insere o relacionamento
+
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_interesse
                     (profissional_id, area_interesse_id, nivel_interesse)
@@ -208,7 +208,7 @@ class DataService:
         try:
             nome = area['nome'].lower().strip()
 
-            # Primeiro busca área exata
+
             self.cursor.execute(
                 "SELECT id FROM areas_atuacao WHERE LOWER(nome) = %s",
                 (nome,)
@@ -217,7 +217,7 @@ class DataService:
 
             if resultado:
                 area_id = resultado['id']
-                # Atualiza métricas de uso
+
                 self.cursor.execute("""
                     UPDATE areas_atuacao 
                     SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -226,7 +226,7 @@ class DataService:
                     WHERE id = %s
                 """, (area.get('termos_relacionados', ''), area_id))
             else:
-                # Busca similares
+
                 self.cursor.execute("""
                     SELECT id, nome
                     FROM areas_atuacao 
@@ -240,7 +240,7 @@ class DataService:
                 similar = self.cursor.fetchone()
                 if similar:
                     area_id = similar['id']
-                    # Atualiza área existente
+
                     self.cursor.execute("""
                         UPDATE areas_atuacao 
                         SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -249,7 +249,7 @@ class DataService:
                         WHERE id = %s
                     """, (nome, area_id))
                 else:
-                    # Cria nova área
+
                     self.cursor.execute("""
                         INSERT INTO areas_atuacao 
                         (nome, descricao, termos_similares, total_uso) 
@@ -261,7 +261,7 @@ class DataService:
                     ))
                     area_id = self.cursor.lastrowid
 
-            # Insere o relacionamento
+
             self.cursor.execute("""
                 INSERT INTO profissionais_areas_atuacao
                     (profissional_id, area_atuacao_id, anos_experiencia,

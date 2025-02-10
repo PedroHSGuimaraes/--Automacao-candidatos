@@ -1,4 +1,3 @@
-# src/ui/styles.py
 
 QUERY_STYLES = """
 <style>

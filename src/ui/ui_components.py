@@ -32,7 +32,7 @@ def render_upload():
             total_processado = 0
             total_curriculos = 0
 
-            # Primeiro conta o total de currículos
+
             for arquivo in arquivos:
                 try:
                     curriculos = pdf_service.extrair_curriculos_multiplos(arquivo)
@@ -41,16 +41,16 @@ def render_upload():
                     st.error(f"Erro ao analisar {arquivo.name}: {e}")
                     continue
 
-            # Processa cada arquivo
+
             for arquivo in arquivos:
                 try:
-                    # Extrai currículos do PDF atual
+
                     curriculos = pdf_service.extrair_curriculos_multiplos(arquivo)
 
-                    # Mostra quantidade de currículos encontrados no arquivo
+
                     st.info(f"Encontrados {len(curriculos)} currículos em {arquivo.name}")
 
-                    # Cria uma tabela para mostrar os candidatos encontrados
+
                     if curriculos:
                         st.write("Candidatos identificados neste arquivo:")
                         dados_candidatos = []
@@ -62,7 +62,7 @@ def render_upload():
                             })
                         st.table(dados_candidatos)
 
-                    # Processa cada currículo
+
                     for idx, (info, texto_cv) in enumerate(curriculos, 1):
                         total_processado += 1
                         progress = total_processado / total_curriculos
@@ -76,7 +76,7 @@ def render_upload():
                             with st.spinner(f'Analisando currículo de {nome_candidato}...'):
                                 dados = gpt_service.analisar_curriculo(texto_cv)
 
-                                # Atualiza dados com informações extraídas do PDF
+
                                 if not dados['profissional']['nome'] and info.get('nome'):
                                     dados['profissional']['nome'] = info['nome']
                                 if not dados['profissional']['email'] and info.get('email'):
@@ -95,7 +95,7 @@ def render_upload():
             progress_bar.empty()
             status_text.empty()
 
-            # Resumo final
+
             st.markdown("### Resumo do Processamento")
             st.markdown(f"""
             - Total de arquivos processados: {len(arquivos)}
@@ -110,7 +110,7 @@ def render_viewer():
     try:
         data_service = DataService()
 
-        # Seleção da tabela
+
         tabela_selecionada = st.selectbox(
             "Selecione a tabela para visualizar:",
             [
@@ -126,7 +126,7 @@ def render_viewer():
             ]
         )
 
-        # Criar a query baseada na seleção
+
         if tabela_selecionada == "Profissionais":
             query = """
                 SELECT p.*, 
@@ -170,7 +170,7 @@ def render_viewer():
                 JOIN profissionais p ON pai.profissional_id = p.id
                 JOIN areas_interesse ai ON pai.area_interesse_id = ai.id
             """
-        else:  # Profissionais-Áreas de Atuação
+        else:
             query = """
                 SELECT p.nome as profissional,
                        aa.nome as area_atuacao,
@@ -185,13 +185,13 @@ def render_viewer():
                 JOIN areas_atuacao aa ON paa.area_atuacao_id = aa.id
             """
 
-        # Executar a query
+
         dados = data_service.executar_query(query)
 
         if dados:
             df = pd.DataFrame(dados)
 
-            # Mostrar métricas
+
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total de Registros", len(df))
@@ -199,11 +199,11 @@ def render_viewer():
                 if 'nome' in df.columns:
                     st.metric("Registros Únicos", df['nome'].nunique())
 
-            # Mostrar dados
+
             st.subheader(f"Dados da tabela: {tabela_selecionada}")
             st.dataframe(df)
 
-            # Exportar dados
+
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 "📥 Baixar dados como CSV",
@@ -213,7 +213,6 @@ def render_viewer():
                 key='download-csv'
             )
 
-            # Visualizações específicas para cada tabela
             if len(df) > 1:
                 st.subheader("Visualizações")
 
@@ -274,7 +273,7 @@ def render_query():
     with tab1:
         st.header("Consultas Personalizadas")
 
-        # Exemplos de consultas
+
         st.subheader("Exemplos de Consultas")
         col1, col2 = st.columns(2)
 
@@ -300,7 +299,7 @@ def render_query():
                     if st.button(titulo, key=f"btn_analytic_{titulo}"):
                         st.session_state['query_prompt'] = query
 
-        # Campo de consulta
+
         st.markdown("---")
         prompt = st.text_area(
             "Digite sua consulta:",
@@ -309,7 +308,7 @@ def render_query():
             placeholder="Ex: Busque profissionais formados em Engenharia que falam inglês fluente..."
         )
 
-        # Botão de consulta e processamento
+
         if st.button("🔍 Consultar", type="primary"):
             try:
                 with st.spinner("Gerando consulta..."):
@@ -327,10 +326,10 @@ def render_query():
                                 resultados = data_service.executar_query(query)
 
                             if resultados:
-                                # DataFrame
+
                                 df = pd.DataFrame(resultados)
 
-                                # Resultados e Estatísticas
+
                                 col1, col2 = st.columns([2, 1])
 
                                 with col1:
@@ -346,7 +345,6 @@ def render_query():
                                         st.markdown("**Análise Numérica**")
                                         st.dataframe(df[num_cols].describe())
 
-                                # Visualização
                                 if len(df) > 1:
                                     st.subheader("Visualização")
 
@@ -366,7 +364,7 @@ def render_query():
                                                 st.bar_chart(df[cols_to_plot])
                                             elif chart_type == "Linha":
                                                 st.line_chart(df[cols_to_plot])
-                                            else:  # Dispersão
+                                            else:
                                                 if len(cols_to_plot) >= 2:
                                                     st.scatter_chart(
                                                         data=df,
@@ -391,7 +389,7 @@ def render_query():
     with tab2:
         st.header("Estrutura do Banco de Dados")
 
-        # Tabelas Principais
+
         with st.expander("🎯 Tabelas Principais", expanded=True):
             tabelas_principais = {
                 "profissionais": {
@@ -424,7 +422,6 @@ def render_query():
                 st.markdown(", ".join(cols))
                 st.markdown("---")
 
-        # Tabelas de Interesse e Atuação
         with st.expander("🎯 Tabelas de Interesse e Atuação", expanded=True):
             tabelas_areas = {
                 "areas_interesse": {
@@ -444,7 +441,6 @@ def render_query():
                 st.markdown(", ".join(cols))
                 st.markdown("---")
 
-        # Tabelas de Relacionamento
         with st.expander("🔗 Tabelas de Relacionamento", expanded=True):
             relacionamentos = {
                 "profissionais_idiomas": {
@@ -518,7 +514,6 @@ def render_dashboard():
         data_service = DataService()
         dados = data_service.buscar_
 
-        # Exemplos de SQL
         with st.expander("📝 Exemplos de SQL", expanded=True):
             st.markdown("""
             ### Consultas SQL de Exemplo:
@@ -550,7 +545,6 @@ def render_dashboard():
             ```
             """)
 
-        # Tabelas Principais
         with st.expander("📊 Tabelas Principais", expanded=True):
             st.write(dados)
 

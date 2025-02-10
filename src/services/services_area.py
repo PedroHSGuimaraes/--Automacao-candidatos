@@ -11,7 +11,7 @@ class AreaService:
         try:
             nome = nome.lower().strip()
 
-            # Primeiro busca área exata
+
             cursor.execute("""
                 SELECT id, nome, termos_similares 
                 FROM areas 
@@ -21,7 +21,7 @@ class AreaService:
 
             if resultado:
                 area_id = resultado['id']
-                # Atualiza métricas de uso
+
                 cursor.execute("""
                     UPDATE areas 
                     SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -29,7 +29,7 @@ class AreaService:
                     WHERE id = %s
                 """, (area_id,))
             else:
-                # Busca similares usando FULLTEXT
+
                 cursor.execute("""
                     SELECT id, nome, total_uso
                     FROM areas 
@@ -44,7 +44,7 @@ class AreaService:
                 similar = cursor.fetchone()
                 if similar:
                     area_id = similar['id']
-                    # Atualiza área existente
+
                     cursor.execute("""
                         UPDATE areas 
                         SET total_uso = COALESCE(total_uso, 0) + 1,
@@ -83,7 +83,7 @@ class AreaService:
         try:
             termo_lower = termo.lower()
 
-            # Busca usando FULLTEXT e LIKE
+
             query = """
             SELECT 
                 id, 
@@ -121,7 +121,7 @@ class AreaService:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         try:
-            # Remove associações anteriores
+
             cursor.execute(
                 "DELETE FROM candidato_areas WHERE candidato_id = %s",
                 (candidato_id,)

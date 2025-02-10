@@ -1,9 +1,9 @@
 import streamlit as st
 
-# Configurações do OpenAI
+
 OPENAI_KEY = st.secrets["openai_key"]
 GEMINI_KEY = st.secrets["gemini_key"]
-# Configurações do Banco de Dados
+
 DB_CONFIG = {
     'host': st.secrets["mysql_host"],
     'user': st.secrets["mysql_user"],
@@ -17,10 +17,9 @@ DB_CONFIG = {
     'pool_reset_session': True
 }
 
-# Schema do Banco de Dados
-# Schema do Banco de Dados
+
 SQL_SCHEMA = """
--- Tabela de Gêneros
+
 CREATE TABLE IF NOT EXISTS generos (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(50),
@@ -28,7 +27,7 @@ CREATE TABLE IF NOT EXISTS generos (
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Áreas de Interesse
+
 CREATE TABLE IF NOT EXISTS areas_interesse (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -41,7 +40,7 @@ CREATE TABLE IF NOT EXISTS areas_interesse (
     FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Áreas de Atuação
+
 CREATE TABLE IF NOT EXISTS areas_atuacao (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -54,7 +53,6 @@ CREATE TABLE IF NOT EXISTS areas_atuacao (
     FULLTEXT INDEX idx_busca (nome, descricao, termos_similares)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Faculdades
 CREATE TABLE IF NOT EXISTS faculdades (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -66,7 +64,6 @@ CREATE TABLE IF NOT EXISTS faculdades (
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Idiomas
 CREATE TABLE IF NOT EXISTS idiomas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -74,7 +71,7 @@ CREATE TABLE IF NOT EXISTS idiomas (
     data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela Principal de Profissionais
+
 CREATE TABLE IF NOT EXISTS profissionais (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nome VARCHAR(255),
@@ -104,7 +101,7 @@ CREATE TABLE IF NOT EXISTS profissionais (
     FOREIGN KEY (idioma_principal_id) REFERENCES idiomas(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Relacionamento Profissionais-Idiomas
+
 CREATE TABLE IF NOT EXISTS profissionais_idiomas (
     profissional_id INT,
     idioma_id INT,
@@ -117,7 +114,7 @@ CREATE TABLE IF NOT EXISTS profissionais_idiomas (
     FOREIGN KEY (idioma_id) REFERENCES idiomas(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Relacionamento Profissionais-Áreas de Interesse
+
 CREATE TABLE IF NOT EXISTS profissionais_areas_interesse (
     profissional_id INT,
     area_interesse_id INT,
@@ -128,7 +125,7 @@ CREATE TABLE IF NOT EXISTS profissionais_areas_interesse (
     FOREIGN KEY (area_interesse_id) REFERENCES areas_interesse(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tabela de Relacionamento Profissionais-Áreas de Atuação
+
 CREATE TABLE IF NOT EXISTS profissionais_areas_atuacao (
     profissional_id INT,
     area_atuacao_id INT,
@@ -144,7 +141,7 @@ CREATE TABLE IF NOT EXISTS profissionais_areas_atuacao (
     FOREIGN KEY (area_atuacao_id) REFERENCES areas_atuacao(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Inserir valores padrão na tabela de gêneros
+
 INSERT INTO generos (nome, descricao) 
 SELECT * FROM (
     SELECT 'masculino' as nome, 'Gênero masculino' as descricao
@@ -158,20 +155,20 @@ WHERE NOT EXISTS (
 ) LIMIT 1;
 """
 
-# Constantes do Sistema
+
 NIVEIS_IDIOMA = ['básico', 'intermediário', 'avançado', 'fluente']
 TIPOS_CONTRATO = ['clt', 'pj', 'freelancer', 'estágio', 'temporário']
 DISPONIBILIDADE = ['imediata', '15 dias', '30 dias', '45 dias', 'a combinar']
 NIVEIS_INTERESSE = [(1, 'muito baixo'), (2, 'baixo'), (3, 'médio'), (4, 'alto'), (5, 'muito alto')]
 
-# Configurações de Cache
+
 CACHE_CONFIG = {
     'CACHE_TYPE': 'SimpleCache',
     'CACHE_DEFAULT_TIMEOUT': 300,
     'CACHE_THRESHOLD': 500
 }
 
-# Configurações de Logging
+
 LOGGING_CONFIG = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -203,7 +200,6 @@ LOGGING_CONFIG = {
     }
 }
 
-# Templates para o GPT
 TEMPLATE_ANALISE_CURRICULO = """
 Analise o currículo fornecido e extraia as seguintes informações:
 - Dados básicos (nome, email, gênero, idade)
@@ -226,9 +222,8 @@ Gere uma query SQL otimizada seguindo as melhores práticas:
 - Use aliases claros
 """
 
-# Configurações de Interface
 UI_CONFIG = {
-    'max_file_size': 5 * 1024 * 1024,  # 5MB
+    'max_file_size': 5 * 1024 * 1024,
     'allowed_file_types': ['pdf'],
     'max_files_upload': 10,
     'timeout_seconds': 300,
@@ -244,26 +239,23 @@ UI_CONFIG = {
     'sidebar_state': 'expanded'
 }
 
-# Configurações de Segurança
 SECURITY_CONFIG = {
     'password_min_length': 8,
     'password_require_upper': True,
     'password_require_lower': True,
     'password_require_number': True,
     'password_require_special': True,
-    'session_lifetime': 3600,  # 1 hora
+    'session_lifetime': 3600,
     'max_login_attempts': 3,
-    'lockout_time': 300  # 5 minutos
+    'lockout_time': 300
 }
 
-# Configurações de Rate Limiting
 RATE_LIMIT_CONFIG = {
     'default': '100/hour',
     'upload': '50/hour',
     'query': '200/hour'
 }
 
-# Configurações de Email
 EMAIL_CONFIG = {
     'MAIL_SERVER': st.secrets.get("mail_server", "smtp.gmail.com"),
     'MAIL_PORT': st.secrets.get("mail_port", 587),
@@ -273,7 +265,6 @@ EMAIL_CONFIG = {
     'MAIL_DEFAULT_SENDER': st.secrets.get("mail_sender", "")
 }
 
-# Configurações de Integração
 INTEGRATION_CONFIG = {
     'linkedin_api_key': st.secrets.get("linkedin_api_key", ""),
     'github_api_key': st.secrets.get("github_api_key", ""),
